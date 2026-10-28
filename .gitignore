@@ -1,0 +1,34 @@
+﻿
+# Python virtual environment
+.venv/
+venv/
+
+# Python generated files
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# PyCharm project settings
+.idea/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Unity generated files
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+
+# Blender backup files
+*.blend1
+*.blend2
+
+# Operating system files
+.DS_Store
+Thumbs.db
