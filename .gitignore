@@ -32,3 +32,8 @@ __pycache__/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Unity and Rider generated solution files
+*.sln
+*.csproj
+*.suo
