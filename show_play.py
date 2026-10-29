@@ -20,7 +20,7 @@ def main() -> None:
     while True:
         try:
             typed = input("> ")
-        except EOFError:
+        except (EOFError, KeyboardInterrupt):
             print()
             return
         output = handle_command(session, typed)

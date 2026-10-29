@@ -28,13 +28,13 @@ def is_knight_move(dr: int, dc: int) -> bool:
 
 
 def is_diagonal_move(dr: int, dc: int) -> bool:
-    """Checks whether (dr, dc) is diagonal."""
-    return abs(dr) == abs(dc)
+    """True when (dr, dc) is a non-zero diagonal step."""
+    return dr != 0 and abs(dr) == abs(dc)
 
 
 def is_straight_move(dr: int, dc: int) -> bool:
-    """Checks whether (dr, dc) is orthogonal (along rank or file)."""
-    return dr == 0 or dc == 0
+    """True when (dr, dc) is a non-zero rook step (rank or file)."""
+    return (dr == 0) != (dc == 0)
 
 
 def is_queen_move(dr: int, dc: int) -> bool:

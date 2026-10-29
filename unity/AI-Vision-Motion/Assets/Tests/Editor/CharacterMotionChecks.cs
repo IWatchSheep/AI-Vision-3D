@@ -16,7 +16,10 @@ public static class CharacterMotionChecks
         Check(new[] { 4f, 1.5f, 1f }, 4.72f);   // Same elapsed time, different frame boundaries.
         Check(new[] { 5.5f }, 4.72f, 0f);       // No extra stopped frame with zero rest time.
         Check(new[] { 1f }, -5f, 0f, 0f);       // Invalid travel duration still yields a finite position.
-        Debug.Log("CharacterMotion: all six timing checks passed.");
+        Check(new[] { float.NaN }, -5f);        // NaN delta is safely ignored.
+        Check(new[] { float.PositiveInfinity }, -5f); // Infinity delta is safely ignored.
+        Check(new[] { -1.0f }, -5f);            // Negative delta is safely ignored.
+        Debug.Log("CharacterMotion: all nine timing checks passed.");
     }
 
     private static void Check(float[] deltas, float expectedX, float stop = 1f, float travel = 5f)

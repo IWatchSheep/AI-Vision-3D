@@ -28,6 +28,13 @@ class SearchBudget:
 _active_budget: ContextVar[SearchBudget | None] = ContextVar("chess_search_budget", default=None)
 
 
+def search_checkpoint() -> None:
+    """Charge iterative work to the enclosing report's shared budget."""
+    budget = _active_budget.get()
+    if budget is not None:
+        budget.consume()
+
+
 def bounded_search(function):
     """Give a top-level call a budget; nested calls share the same allowance.
 

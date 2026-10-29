@@ -19,11 +19,12 @@ def promotion_rank(promotion: str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class Move:
+    # Rows/cols are 0..7 (row 0 = rank 8, col 0 = file a). See constants.py.
     sr: int  # start row
     sc: int  # start col
     er: int  # end row
     ec: int  # end col
-    promotion: str = "\0"  # 'Q','R','B','N' or '\0'
+    promotion: str = "\0"  # 'Q','R','B','N', or '\0' meaning none
 
     @property
     def is_kingside_castle(self) -> bool:

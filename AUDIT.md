@@ -51,7 +51,7 @@ Repeat the Unity timing checks with your installed editor executable:
 ```powershell
 & 'C:\Program Files\Unity\Hub\Editor\6000.6.7f1\Editor\Unity.exe' `
   -batchmode -nographics -quit -projectPath "$PWD/unity/AI-Vision-Motion" `
-  -executeMethod CharacterMotionChecks.Run -logFile "$PWD/motion-checks.log"
+  -executeMethod CharacterMotionChecks.Run -logFile -
 ```
 
 The editor-only checks cover endpoint rest, leftover time, crossing a complete
@@ -122,3 +122,91 @@ was found in the maintained application paths inspected. Dependencies, ignored
 reference sources, generated files, and a fresh Unity runtime run are outside
 this follow-up. These checks do not prove that every bug or security issue is
 absent; the conservative adjudication/search limits described above still apply.
+
+## Latest review and verification — 2026-10-29
+
+This review covered maintained Python application code, report APIs, launchers,
+calculator data and tests, and Unity C# sources and project configuration.
+The ignored archived `chess_source/` reference, dependencies, generated Unity
+files, binary assets, and Git internals are outside the maintained-source scope.
+No archived repository was modified. The figures below supersede the earlier
+test counts in this document.
+
+Additional fixes:
+
+- Exchange minimax and sequence totals omitted the material created by
+  promotion. For example, `g7xh8=Q` followed by `Kxh8` against a rook was
+  incorrectly classified as only POSSIBLE NONNEGATIVE. The pawn's promotion
+  gains eight points, leaving a net gain of four even after recapture. Both
+  colors now include promotion gains, and the sequence report explains them.
+- Direct calls to COMPARE, TRACE, ORDER, CALC, REPLIES, goal marks, and follow-up
+  PASS reports did not consistently share one work budget across subreports.
+  Public entry points now establish a shared budget; iterative mate scans,
+  replies and trace validation charge work to it. Timeout failures preserve
+  the board and tracker. TRACE also rejects bad input types and excessive text
+  before splitting it.
+- Forced mate search (`mate_forced` and `first_move_forces` in `study/search.py`)
+  now calls `search_checkpoint()` inside branch iterations so move generation and
+  recursive mate checks cooperatively respect node/time quotas.
+- Blueprint play could crash on `doll ²` because `isdigit()` accepts characters
+  that `int()` cannot parse. Numeric selection now accepts bounded ASCII
+  digits. Oversized and non-text commands are rejected without changing state.
+- Blueprint imagination accepted unlimited supplied moves and eagerly exhausted
+  generators. Interactive lines and automatic ply counts now enforce four
+  moves; the lower-level replay helper preserves longer rule demonstrations
+  with a 512-ply limit. Infinite iterables are rejected after bounded reads.
+- `calculator/play_build.py`:
+  - `spoken_move()` guarded against unformatted messages, short strings (< 4 parts),
+    and refused/illegal `MoveResult` instances, eliminating `IndexError`.
+  - `_mark_at()` validated algebraic coordinate bounds, raising `ValueError` for
+    malformed squares, non-strings, or out-of-range rows/columns.
+- `chess_module/chess_engine/cli_session.py`:
+  - `parse_bounded_int()` and `sanitize_display_text()` enforce strict integer/bool
+    and length bounds.
+  - `GameSession.select_piece()` enforces board bounds `in_bounds(row, col)`.
+  - `GameSession.clear_selection()`, `clear_preview_keep_piece()`, and
+    `invalidate_preview()` reset `preview_move` and `pending_promotion` to inactive
+    state, preventing stale coordinates from persisting across flow steps.
+- `chess_module/chess_engine/cli_goal_cmds.py`:
+  - Removed UTF-8 Byte Order Mark (`\xef\xbb\xbf`) that caused syntax/AST parse errors
+    when parsed by code analysis and linter tools.
+- `chess_module/chess_engine/study/distance_order.py`:
+  - `distance_selection()` and `distance_lines()` now guard `board.grid[r][c].is_empty`,
+    preventing null byte (`\x00`) string printing and empty piece pseudo-turn processing.
+- `chess_module/chess_engine/cli_move_cmds.py`:
+  - `handle_game_control()` now safely checks `session.preview_move is not None and getattr(session.preview_move, 'sr', -1) >= 0`
+    during draw claims to eliminate `AttributeError` risk if preview state is cleared or malformed.
+- `unity/AI-Vision-Motion/Assets/Scripts/CharacterMotion.cs`:
+  - Added guards against `float.IsNaN(deltaTime)`, `float.IsInfinity(deltaTime)`,
+    and negative `deltaTime < 0f`, plus negative remainder wrap-around protection.
+- Blueprint play now exits cleanly on Ctrl+C.
+- Per-piece mobility and preview lists generated every piece's legal moves
+  repeatedly. They now generate the requested piece's moves only, with regression
+  checks against full move generation for both colors, castling, promotion and
+  en passant.
+- The chess README referenced a nonexistent local `chess.txt`; it now points to
+  the archived repository. The root README explicitly lists both test commands.
+
+Verification with PyCharm's configured Python 3.15.2 virtual environment:
+
+```powershell
+python -m unittest discover -v
+python -m unittest discover -s chess_module -v
+```
+
+- **119 root tests passed**, including 29 review and audit regressions in `test_audit_regressions.py` and 15 in `test_review_regressions.py`.
+- **81 chess tests passed**: **200 Python tests total**.
+- Fresh subprocesses play Fool's Mate through select, preview and finalize in
+  all three launch modes, checking clean exit and the winner message.
+- Existing suites exercise move-generation counts, seeded games, castling,
+  en passant, promotion, pins, mate, stalemate, draw claims, automatic draws,
+  repetition, preview isolation, memory, search limits and calculator behavior.
+- Unity 6000.6.7f1 completed headless execution passing **nine CharacterMotion timing checks**
+  (endpoint rest, leftover time, complete-cycle frames, uneven intervals, zero rest,
+  zero travel duration, NaN delta, Infinity delta, and negative delta) with exit code 0.
+
+The security fixes address malformed local input, unvalidated bounds, state desynchronization,
+and excessive computation; no remote exploit was demonstrated. Installed dependency
+vulnerabilities, complete position reachability, all possible dead positions, and manual visual
+playtesting are not certified. Search deadlines are cooperative, and passing
+tests does not establish that every bug or security issue is absent.

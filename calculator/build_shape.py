@@ -11,14 +11,33 @@ castling/en passant rights remain. Never reconstruct rules from a picture.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import islice
 from typing import Iterable
 
 from calculator.pattern import cell_name, compare
 from calculator.strategies import BOARD_SIZE, Strategy, require_board
 from chess_module.chess_engine.board import Board
+from chess_module.chess_engine.constants import HISTORY_MAX_LEN
 from chess_module.chess_engine.move import parse_move_text
 from chess_module.chess_engine.movegen import game_over, legal_move, make_move
 from chess_module.chess_engine.tracker import FollowCase, follow_piece
+
+IMAGINE_STEP_LIMIT = 4
+
+
+def imaginary_moves(moves: Iterable[str], limit: int = IMAGINE_STEP_LIMIT) -> tuple[str, ...]:
+    """Validate a supplied line without exhausting an unbounded iterable."""
+    if (not isinstance(limit, int) or isinstance(limit, bool)
+            or not 0 <= limit <= HISTORY_MAX_LEN):
+        raise ValueError(f"Move limit must be an integer from zero to {HISTORY_MAX_LEN}")
+    if isinstance(moves, (str, bytes)):
+        raise ValueError("Supply a sequence of moves")
+    texts = tuple(islice(moves, limit + 1))
+    if len(texts) > limit:
+        raise ValueError(f"An imaginary line is limited to {limit} moves")
+    if any(not isinstance(text, str) for text in texts):
+        raise ValueError("Imaginary moves must be text")
+    return texts
 
 
 def _rows(board: Board) -> list[str]:
@@ -224,6 +243,9 @@ def imagine_line(doll: Strategy, board_rows: list[str], moves: Iterable[str]) ->
     across the whole line, rather than all missing squares of the blueprint.
     A refused move is stored with unchanged counts and does not advance turn.
     """
+    # This lower-level replay supports longer rule demonstrations, while the
+    # interactive calculator limits imagination to four plies.
+    texts = imaginary_moves(moves, HISTORY_MAX_LEN)
     blueprint = doll.copy()
     source = _engine_copy(board_rows)
     original_rows = tuple(board_rows)
@@ -234,7 +256,7 @@ def imagine_line(doll: Strategy, board_rows: list[str], moves: Iterable[str]) ->
     # --- Pass 1: play the line on copies; track new blueprint squares filled ---
     records = []
     line_targets = set()
-    for text in moves:
+    for text in texts:
         result = apply_legal_move(current, text, blueprint)
         current = result.board_rows
         new_filled = set(result.view.filled_squares) - initial_filled

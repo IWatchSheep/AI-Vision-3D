@@ -4,7 +4,7 @@ A two-player chess program in Python, converted from [chess-c99](https://github.
 
 The program reports what a move changes. Choosing a move is left to [AI-Vision-3D](https://github.com/IWatchSheep/AI-Vision-3D), which ranks strategies and targets from these reports.
 
-`chess.txt` is the original C99 source, kept for comparison. The C repository is archived.
+The original C99 source lives in the archived C repository linked above.
 
 ## Run
 
@@ -23,6 +23,7 @@ python3 -m unittest discover -s . -p 'test_*.py'
 ```
 
 See [AUDIT.md](AUDIT.md) for verified rule fixes, regression coverage, and review limits.
+The latest integration review and test results are in [the root audit](../AUDIT.md).
 
 ## How to move
 
@@ -66,6 +67,13 @@ After a preview:
 | `risk on` | Show a piece arriving on an attacked goal square |
 
 `help` lists these. `help goal` prints one topic.
+
+Public analysis reports share a cooperative limit of 20,000 work steps or
+10 seconds across their nested searches. Reaching the limit raises an error
+without returning a partial report or changing the live game. Time is checked
+between work steps, so an individual step may run past the time limit.
+Exchange material totals include the value gained when a pawn promotes;
+`PROMOTION-GAIN` records that contribution separately from captured pieces.
 
 ## Layout
 

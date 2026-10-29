@@ -18,6 +18,18 @@ Current runnable code: `python main.py` launches chess. The package launch
 run the calculator demonstrations. The milestone checklist below is the
 original roadmap; see [AUDIT.md](AUDIT.md) for the current review and checks.
 
+Run both test suites from the repository root with the configured Python interpreter:
+
+```sh
+python -m unittest discover -q
+python -m unittest discover -s chess_module -q
+```
+
+Root discovery does not include the separate chess suite. The current review
+passes 113 root tests and 79 chess tests, including full terminal games through
+all three chess launch modes. `show_play.py` limits imaginary lines to four
+plies; the lower-level `imagine_line` replay helper supports up to 512 plies.
+
 - [x] [chess-c99](https://github.com/IWatchSheep/chess-c99) version 16 is archived. Leave it unchanged.
 - [x] [chess-python](https://github.com/IWatchSheep/chess-python) at commit `c5730c0` is archived. Leave it unchanged. It plays a full game, prints fact reports, and keeps the five-move `memory` window.
 - [x] This repository is the active project. `main.py` launches chess. `unity/AI-Vision-Motion` is a Unity 6 scene where one character slides from left to right and back.

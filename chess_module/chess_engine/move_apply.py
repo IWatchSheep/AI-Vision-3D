@@ -9,8 +9,10 @@ from typing import List, TYPE_CHECKING
 from .constants import (
     Color, WHITE, BLACK,
     PROMOTION_PIECES,
-    in_bounds, opposite, home_row_for, rook_col_for,
+    KING_START_COL,
+    CASTLE_KINGSIDE_KING_DEST_COL, CASTLE_QUEENSIDE_KING_DEST_COL,
     CASTLE_KINGSIDE_ROOK_DEST_COL, CASTLE_QUEENSIDE_ROOK_DEST_COL,
+    in_bounds, opposite, home_row_for, rook_col_for,
 )
 from .piece import Piece, empty_piece
 from .move import Move
@@ -19,13 +21,46 @@ if TYPE_CHECKING:
     from .board import Board
 
 
+def _castling_path_clear(board: 'Board', move: Move, piece: Piece) -> bool:
+    """True when castling geometry is safe to apply on the grid.
+
+    Checks home squares, empty path, and a friendly corner rook. Does not
+    re-check castling *rights* — make_move may already have marked the king
+    moved before calling apply_move_to_board.
+    """
+    home = home_row_for(piece.color)
+    king_side = move.ec > move.sc
+    dest_col = (
+        CASTLE_KINGSIDE_KING_DEST_COL if king_side else CASTLE_QUEENSIDE_KING_DEST_COL
+    )
+    if (
+        move.sr != home
+        or move.er != home
+        or move.sc != KING_START_COL
+        or move.ec != dest_col
+    ):
+        return False
+
+    rook_from_col = rook_col_for(king_side)
+    rook = board.grid[move.sr][rook_from_col]
+    if rook.type != "R" or rook.color != piece.color:
+        return False
+
+    first_empty = 5 if king_side else 1
+    last_empty = 6 if king_side else 3
+    for col in range(first_empty, last_empty + 1):
+        if not board.grid[move.sr][col].is_empty:
+            return False
+    return True
+
+
 def apply_move_to_board(board: 'Board', move: Move) -> None:
     """Update only the piece grid for this move (EP, castle rook, promote).
 
     Does not change turn, clocks, or castling flags — make_move does that.
     Empty start squares are ignored so a bad call cannot wipe the destination.
-    A two-square king move without a friendly rook in the corner is refused
-    entirely (no king teleport without the rook).
+    A two-square king move needs a clear castling path and a corner rook;
+    otherwise the board is left unchanged (no king teleport / piece overwrite).
     """
     from .move_legality import move_is_en_passant
 
@@ -46,17 +81,16 @@ def apply_move_to_board(board: 'Board', move: Move) -> None:
         if in_bounds(move.sr, move.ec):
             board.grid[move.sr][move.ec] = empty_piece()
 
-    # Castling: slide the rook with the king. If the corner rook is missing,
-    # refuse the whole move so the king cannot jump alone.
+    # Castling: slide the rook only when the path and corner rook look valid.
     if piece.type == "K" and move.sr == move.er and abs(move.ec - move.sc) == 2:
+        if not _castling_path_clear(board, move, piece):
+            return
         king_side = move.ec > move.sc
         rook_from_col = rook_col_for(king_side)
         rook_to_col = (
             CASTLE_KINGSIDE_ROOK_DEST_COL if king_side else CASTLE_QUEENSIDE_ROOK_DEST_COL
         )
         rook = board.grid[move.sr][rook_from_col]
-        if rook.type != "R" or rook.color != piece.color:
-            return
         board.grid[move.sr][rook_to_col] = rook
         board.grid[move.sr][rook_from_col] = empty_piece()
 

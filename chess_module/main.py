@@ -27,6 +27,7 @@ else:
 
 
 def main() -> None:
+    """Run one hotseat game until checkmate, draw, quit, or an invalid board."""
     enable_windows_colors()
     print("=== Simple 2-Player Chess ===")
 

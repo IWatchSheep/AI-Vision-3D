@@ -41,7 +41,6 @@ CASTLE_KINGSIDE_ROOK_DEST_COL = 5
 CASTLE_QUEENSIDE_ROOK_DEST_COL = 3
 
 # Size limits — cap strings and list growth so hostile input cannot DoS the engine.
-FEN_TEXT_SIZE = 100
 # Absolute cap for load_fen / fen commands (DoS guard). Fits any legal FEN.
 FEN_TEXT_MAX = 256
 FEN_NUMBER_MAX_DIGITS = 9

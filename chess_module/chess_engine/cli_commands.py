@@ -123,7 +123,7 @@ ANALYSIS_COMMANDS: Sequence[CommandSpec] = (
                 usage="memory"),
 )
 
-# Play / session commands (checked before analysis table in dispatch).
+# Play / session handlers run first; analysis specs are tried only if none match.
 PLAY_HANDLERS: Sequence[Handler] = (
     handle_help,
     handle_cancel,
@@ -147,7 +147,7 @@ ALL_HELP_SPECS: Sequence[CommandSpec] = (
 
 @bounded_search
 def dispatch_named_command(session: GameSession, cmd: str) -> bool:
-    """Run the first matching play or analysis handler. True if handled."""
+    """Try PLAY_HANDLERS, then ANALYSIS_COMMANDS. Return True if one handled cmd."""
     for handler in PLAY_HANDLERS:
         if handler(session, cmd):
             return True

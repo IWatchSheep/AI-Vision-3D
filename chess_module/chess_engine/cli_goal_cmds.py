@@ -1,4 +1,4 @@
-﻿"""Optional study commands: goals, routes, distance order, support.
+"""Optional study commands: goals, routes, distance order, support.
 
 These only print analysis; they never replace the select → preview → F move flow.
 """

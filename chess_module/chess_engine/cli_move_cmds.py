@@ -204,7 +204,7 @@ def handle_game_control(session: GameSession, cmd: str) -> Optional[str]:
         # threefold / 50-move; use the current preview when one is ready.
         intended = (
             session.preview_move
-            if session.preview_shown and session.preview_move.sr >= 0
+            if session.preview_shown and session.preview_move is not None and getattr(session.preview_move, "sr", -1) >= 0
             else None
         )
         can_claim, draw_reason = session.board.claimable_draw(intended)

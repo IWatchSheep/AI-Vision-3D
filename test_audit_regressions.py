@@ -332,6 +332,35 @@ class TestAuditRegressions(unittest.TestCase):
         with self.assertRaises(ValueError):
             window.past = ["not a CompareResult"]
 
+    def test_distance_selection_empty_and_out_of_bounds(self):
+        from chess_module.chess_engine.study.distance_order import distance_selection, distance_lines
+        # Empty square e4
+        self.assertEqual(distance_selection(self.board, 4, 4), "DISTANCE ORDER END\n")
+        self.assertEqual(distance_lines(self.board, 4, 4, "MOVE"), [])
+
+        # Out of bounds
+        for r, c in ((-1, 0), (0, -1), (8, 0), (0, 8), (-1, -1)):
+            self.assertEqual(distance_selection(self.board, r, c), "DISTANCE ORDER END\n")
+            self.assertEqual(distance_lines(self.board, r, c, "MOVE"), [])
+
+    def test_claim_with_none_or_malformed_preview(self):
+        from chess_module.chess_engine.cli_move_cmds import handle_game_control
+        session = GameSession()
+        session.preview_move = None
+        session.step = Step.CONFIRM_PREVIEW
+        with contextlib.redirect_stdout(io.StringIO()):
+            res = handle_game_control(session, "claim")
+            self.assertEqual(res, "handled")
+
+    def test_python_source_files_no_bom(self):
+        root = Path(__file__).resolve().parent
+        for path in root.glob("**/*.py"):
+            if ".venv" in path.parts or "chess_source" in path.parts:
+                continue
+            with open(path, "rb") as f:
+                header = f.read(3)
+                self.assertNotEqual(header, b"\xef\xbb\xbf", f"File contains UTF-8 BOM: {path}")
+
 
 if __name__ == "__main__":
     unittest.main()

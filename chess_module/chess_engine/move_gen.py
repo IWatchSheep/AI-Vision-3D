@@ -108,7 +108,7 @@ def sorted_moves(board: 'Board') -> List[Move]:
 
 
 def legal_destination_map(board: 'Board', row: int, col: int, side_to_move: Color) -> List[List[bool]]:
-    """Returns an 8x8 boolean matrix where [r][c] is True if piece can legally move to (r, col)."""
+    """Returns an 8x8 matrix: [r][c] is True if the piece can legally move to (r, c)."""
     destinations = [[False] * BOARD_SIZE for _ in range(BOARD_SIZE)]
     if (
         not in_bounds(row, col)
@@ -120,7 +120,8 @@ def legal_destination_map(board: 'Board', row: int, col: int, side_to_move: Colo
     # Clone so we can ask "what if it were side_to_move's turn?" without mutating.
     view = board.clone()
     view.turn = side_to_move
-    moves = generate_moves(view)
+    moves: List[Move] = []
+    generate_piece_moves(view, moves, row, col)
     for m in moves:
         if m.sr == row and m.sc == col:
             destinations[m.er][m.ec] = True

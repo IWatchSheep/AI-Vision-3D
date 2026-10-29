@@ -195,10 +195,12 @@ def routes_report_with(
     for k, sq in enumerate(squares):
         lines.append(f"SQUARE {square_text(sq)} REACH CONDITION {'IF' if reach[k] >= 0 else 'ELSE'} PROTECTED CONDITION {'IF' if prot[k] >= 0 else 'ELSE'}")
 
+    # Prefer the shortest reachable square (not merely the first listed).
     for cond_name, dist_arr in (("REACH", reach), ("PROTECTED", prot)):
-        first_idx = next((k for k, d in enumerate(dist_arr) if d >= 0), -1)
-        if first_idx >= 0:
-            lines.append(f"FIRST-IF {cond_name} {square_text(squares[first_idx])}")
+        reached = [(k, d) for k, d in enumerate(dist_arr) if d >= 0]
+        if reached:
+            best_idx = min(reached, key=lambda item: (item[1], item[0]))[0]
+            lines.append(f"FIRST-IF {cond_name} {square_text(squares[best_idx])}")
         else:
             lines.append(f"FIRST-IF {cond_name} none (ELSE)")
 
@@ -209,6 +211,7 @@ def routes_report_with(
     return "\n".join(lines)
 
 
+@bounded_search
 def second_from(board: Board, second: Goal, label: str) -> List[str]:
     """PASS distances for the follow-up goal from a labeled board state."""
     squares = goal_squares(second, board, board.turn)

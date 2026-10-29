@@ -50,7 +50,7 @@ def err(message: str) -> None:
 
 def move_label(move: Move) -> str:
     """Turn a Move into text like 'e2 -> e4'."""
-    if not (in_bounds(move.sr, move.sc) and in_bounds(move.er, move.ec)):
+    if not (in_bounds(move.sr, move.sc) and in_bounds(move.er, move.ec)) :
         return "?? -> ??"
     return f"{row_col_text(move.sr, move.sc)} -> {row_col_text(move.er, move.ec)}"
 
@@ -67,6 +67,10 @@ def parse_bounded_int(text: str, lo: int, hi: int) -> Optional[int]:
     Rejects signs, spaces, non-ASCII digits, and very long digit strings
     so int() cannot be fed a huge number.
     """
+    if (not isinstance(lo, int) or isinstance(lo, bool)
+            or not isinstance(hi, int) or isinstance(hi, bool)
+            or lo > hi):
+        return None
     if not isinstance(text, str) or not text or not text.isascii() or not text.isdigit():
         return None
     if len(text) > 18:
@@ -84,6 +88,8 @@ def sanitize_display_text(text: str, max_len: int = 64) -> str:
     """Make untrusted text safe to print (no escape codes); trim long strings."""
     if not isinstance(text, str):
         return ""
+    if not isinstance(max_len, int) or isinstance(max_len, bool) or max_len < 0:
+        max_len = 0
     cleaned = "".join(ch for ch in text if ch.isprintable())
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "..."
@@ -127,11 +133,15 @@ class GameSession:
         """Reset to step 1: no piece selected, no preview."""
         self.selected_row = -1
         self.selected_col = -1
+        self.preview_move = Move(-1, -1, -1, -1)
+        self.pending_promotion = Move(-1, -1, -1, -1)
         self.step = Step.PICK_PIECE
         self.memory.clear_current()
 
     def select_piece(self, row: int, col: int) -> None:
         """Step 1 done — next two-character input will be treated as destination."""
+        if not in_bounds(row, col):
+            raise ValueError(f"Out of bounds piece selection: ({row}, {col})")
         self.selected_row = row
         self.selected_col = col
         self.step = Step.PICK_DESTINATION
@@ -143,11 +153,15 @@ class GameSession:
 
     def clear_preview_keep_piece(self) -> None:
         """P command: stay on the selected piece, drop only the preview."""
+        self.preview_move = Move(-1, -1, -1, -1)
+        self.pending_promotion = Move(-1, -1, -1, -1)
         self.step = Step.PICK_DESTINATION
         self.memory.clear_current()
 
     def invalidate_preview(self) -> None:
         """Preview became illegal; keep selection if any, ask for a new destination."""
+        self.preview_move = Move(-1, -1, -1, -1)
+        self.pending_promotion = Move(-1, -1, -1, -1)
         if self.has_selection():
             self.step = Step.PICK_DESTINATION
         else:
@@ -169,7 +183,17 @@ class GameSession:
         self.memory.clear()
 
     def show_preview_extras(self, move: Move) -> None:
-        """Print optional goal / distance notes after a preview."""
+        """Print optional goal / distance notes after a preview.
+
+        Goal marks use PASS (same side may move again). Distance uses REAL
+        rules (turn flips). When both are on, say so once so the two reports
+        are not read as one shared after-position.
+        """
+        if self.goal.active and self.distance_view:
+            print(
+                "NOTE goal marks use PASS; distance order uses REAL "
+                "(opponent answers)."
+            )
         if self.goal.active:
             print(goal_marks_after(self.board, self.goal, move), end="")
         if self.distance_view:
@@ -183,4 +207,5 @@ class GameSession:
         self.show_preview_extras(move)
         self.memory.set_current(self.board, move)
         self.preview_move = move
+        self.pending_promotion = Move(-1, -1, -1, -1)
         self.step = Step.CONFIRM_PREVIEW

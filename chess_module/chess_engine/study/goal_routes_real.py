@@ -160,11 +160,18 @@ def routes_real_report(board: Board, goal: Goal, depth: int) -> str:
         sq_str = square_text(sq)
         lines.append(f"SQUARE {sq_str} REACH {real_text(results[k][0])} PROTECTED {real_text(results[k][1])}")
 
+    # Prefer FORCED over POSSIBLE so a later goal square cannot hide a mate.
     for cond_idx, cond_name in enumerate(("REACH", "PROTECTED")):
-        first_idx = next((k for k in range(len(squares)) if results[k][cond_idx] != RealResult.REAL_ELSE), -1)
-        if first_idx >= 0:
-            res_word = "FORCED" if results[first_idx][cond_idx] == RealResult.REAL_FORCED else "POSSIBLE"
-            lines.append(f"FIRST-IF {cond_name} {square_text(squares[first_idx])} {res_word}")
+        best_idx = -1
+        best = RealResult.REAL_ELSE
+        for k in range(len(squares)):
+            got = results[k][cond_idx]
+            if got > best:
+                best = got
+                best_idx = k
+        if best_idx >= 0:
+            res_word = "FORCED" if best == RealResult.REAL_FORCED else "POSSIBLE"
+            lines.append(f"FIRST-IF {cond_name} {square_text(squares[best_idx])} {res_word}")
         else:
             lines.append(f"FIRST-IF {cond_name} none (ELSE)")
 

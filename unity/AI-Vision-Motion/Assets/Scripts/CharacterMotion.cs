@@ -36,12 +36,23 @@ public class CharacterMotion : MonoBehaviour
 
     private void Advance(float deltaTime)
     {
+        // Ignore invalid, non-finite, or negative delta times.
+        if (float.IsNaN(deltaTime) || float.IsInfinity(deltaTime) || deltaTime < 0f)
+        {
+            return;
+        }
+
         // Prevent invalid duration settings.
         float duration = Mathf.Max(0.01f, travelTime);
 
         double legTime = (double)duration + Mathf.Max(0f, stopTime);
+        double totalCycle = 2.0 * legTime;
         // Keep leftover time across every transition, even after a long frame.
-        elapsedTime = (elapsedTime + deltaTime) % (2.0 * legTime);
+        elapsedTime = (elapsedTime + (double)deltaTime) % totalCycle;
+        if (elapsedTime < 0.0)
+        {
+            elapsedTime += totalCycle;
+        }
         bool movingRight = elapsedTime < legTime;
         double legElapsed = movingRight ? elapsedTime : elapsedTime - legTime;
 
@@ -70,7 +81,5 @@ public class CharacterMotion : MonoBehaviour
             transform.position.y,
             transform.position.z
         );
-
     }
 }
-

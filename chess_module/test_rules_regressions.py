@@ -184,19 +184,42 @@ class TestRulesRegressions(unittest.TestCase):
             self.assertEqual(board.to_fen(), before_fen)
 
     def test_resignation_draws_when_opponent_cannot_mate(self):
-        for black_piece in ("", "b", "n"):
-            # A bare king, bishop, or knight cannot mate a king and queen.
-            last_rank = "7k" if not black_piece else f"5{black_piece}1k"
+        # A bare king cannot mate a king and queen.
+        session = GameSession()
+        session.board = position("7k/8/8/8/8/8/8/3QK3 w - - 0 1")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(process_command(session, "resign"), "quit")
+        self.assertIn("Draw:", output.getvalue())
+
+    def test_resignation_lone_minor_vs_queen_is_not_auto_draw(self):
+        # The opponent's queen can help a lone bishop or knight mate.
+        for black_piece in ("b", "n"):
             session = GameSession()
-            session.board = position(f"{last_rank}/8/8/8/8/8/8/3QK3 w - - 0 1")
+            session.board = position(f"5{black_piece}1k/8/8/8/8/8/8/3QK3 w - - 0 1")
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 self.assertEqual(process_command(session, "resign"), "quit")
-            self.assertIn("Draw:", output.getvalue())
+            text = output.getvalue()
+            self.assertNotIn("Draw:", text)
+            self.assertIn("wins", text)
 
     def test_opponents_material_can_enable_lone_knight_mate(self):
         board = position("5n1k/8/8/8/8/8/8/3RK3 w - - 0 1")
         self.assertFalse(board.insufficient_mating_material(BLACK))
+        board_q = position("5n1k/8/8/8/8/8/8/3QK3 w - - 0 1")
+        self.assertFalse(board_q.insufficient_mating_material(BLACK))
+        board_b = position("5b1k/8/8/8/8/8/8/3QK3 w - - 0 1")
+        self.assertFalse(board_b.insufficient_mating_material(BLACK))
+
+    def test_apply_move_refuses_castling_through_occupied_path(self):
+        from chess_engine.movegen import apply_move_to_board
+        board = position("4k3/8/8/8/8/8/8/4KB1R w K - 0 1")
+        before = board.to_fen()
+        apply_move_to_board(board, Move(7, 4, 7, 6))
+        self.assertEqual(board.to_fen(), before)
+        self.assertEqual(board.grid[7][5].type, "B")
+        self.assertEqual(board.grid[7][4].type, "K")
 
     def test_all_strategy_reference_fens_are_valid_positions(self):
         data_path = Path(__file__).resolve().parents[1] / "calculator" / "strategies_data.py"

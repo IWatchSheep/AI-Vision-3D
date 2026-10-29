@@ -1,55 +1,52 @@
-"""Board state: pieces, turn, castling, en passant, draws, FEN.
+"""Board state: pieces, turn, castling, en passant, clocks, history.
 
 Think of Board as the whole game position — not just the 8x8 grid.
-
-history: list of position keys for threefold / fivefold claims.
-  Cleared on pawn moves and captures (those cannot repeat a prior key path).
-  Capped at HISTORY_MAX_LEN so it cannot grow without bound.
+Draw rules live in board_draws.py; position keys live in board_key.py.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
 
 from .constants import (
-    BOARD_SIZE, Color, EMPTY, WHITE, BLACK,
+    BOARD_SIZE, Color, WHITE, BLACK,
     HISTORY_MAX_LEN,
-    in_bounds, opposite,
 )
 from .piece import Piece, empty_piece
+from . import board_draws
+from . import board_key
+
+if TYPE_CHECKING:
+    from .move import Move
 
 
 class Board:
-    """Represents the complete, self-contained state of a chess game."""
+    """Full game position: grid, side to move, castling, EP, clocks, history.
+
+    grid[row][col] uses the same layout as constants.py (row 0 = Black's rank 8).
+    """
 
     def __init__(self):
-        # 8x8 grid of Piece objects
         self.grid: List[List[Piece]] = [
             [empty_piece() for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)
         ]
         self.turn: Color = WHITE
-
-        # Castling rights tracking
         self.white_king_moved: bool = False
         self.black_king_moved: bool = False
-        self.white_rook_a_moved: bool = False  # Queenside
-        self.white_rook_h_moved: bool = False  # Kingside
-        self.black_rook_a_moved: bool = False  # Queenside
-        self.black_rook_h_moved: bool = False  # Kingside
-
-        # En passant target square (-1 if none)
+        self.white_rook_a_moved: bool = False
+        self.white_rook_h_moved: bool = False
+        self.black_rook_a_moved: bool = False
+        self.black_rook_h_moved: bool = False
         self.ep_row: int = -1
         self.ep_col: int = -1
-
-        # Halfmove clock (50-move rule counter) and fullmove number
         self.halfmove_clock: int = 0
         self.fullmove_number: int = 1
-
-        # Repetition history: list of position key strings
         self.history: List[str] = []
 
-    def clone(self) -> 'Board':
+    def clone(self) -> "Board":
         """Creates a deep copy of the board."""
         new_b = Board()
-        new_b.grid = [[self.grid[r][c] for c in range(BOARD_SIZE)] for r in range(BOARD_SIZE)]
+        new_b.grid = [
+            [self.grid[r][c] for c in range(BOARD_SIZE)] for r in range(BOARD_SIZE)
+        ]
         new_b.turn = self.turn
         new_b.white_king_moved = self.white_king_moved
         new_b.black_king_moved = self.black_king_moved
@@ -67,18 +64,16 @@ class Board:
     def reset_board(self) -> None:
         """Resets the board to the standard starting chess position."""
         back_row = "RNBQKBNR"
-        # 1. Clear every square, then place the standard opening army.
         for r in range(BOARD_SIZE):
             for c in range(BOARD_SIZE):
                 self.grid[r][c] = empty_piece()
 
         for c in range(BOARD_SIZE):
             self.grid[0][c] = Piece(type=back_row[c], color=BLACK)
-            self.grid[1][c] = Piece(type='P', color=BLACK)
-            self.grid[6][c] = Piece(type='P', color=WHITE)
+            self.grid[1][c] = Piece(type="P", color=BLACK)
+            self.grid[6][c] = Piece(type="P", color=WHITE)
             self.grid[7][c] = Piece(type=back_row[c], color=WHITE)
 
-        # 2. Reset side-to-move, castling, EP, clocks, and repetition list.
         self.turn = WHITE
         self.white_king_moved = False
         self.black_king_moved = False
@@ -96,177 +91,34 @@ class Board:
     def record_position(self) -> None:
         """Remember this position for repetition draws (oldest dropped if full)."""
         self.history.append(self.position_key())
-        # Cap length so a long quiet game cannot grow memory without bound.
         if len(self.history) > HISTORY_MAX_LEN:
             overflow = len(self.history) - HISTORY_MAX_LEN
             del self.history[:overflow]
 
     def position_key(self) -> str:
-        """Position identity, including EP only when a pawn can legally capture."""
-        # Avoid circular import by importing legal_move locally
-        from .movegen import legal_move
-        from .move import Move
-
-        chars = []
-        # 1. 64 characters for piece positions
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
-                chars.append(self.grid[r][c].key_char)
-
-        # 2. Side to move
-        chars.append('W' if self.turn == WHITE else 'B')
-
-        # 3. Castling rights: White Q, White K, Black Q, Black K
-        chars.append('1' if (not self.white_king_moved and not self.white_rook_a_moved) else '0')
-        chars.append('1' if (not self.white_king_moved and not self.white_rook_h_moved) else '0')
-        chars.append('1' if (not self.black_king_moved and not self.black_rook_a_moved) else '0')
-        chars.append('1' if (not self.black_king_moved and not self.black_rook_h_moved) else '0')
-
-        # 4. En passant: only included if an en passant capture is legally possible
-        legal_ep = False
-        if in_bounds(self.ep_row, self.ep_col):
-            dir_step = 1 if self.turn == WHITE else -1
-            starting_row = self.ep_row + dir_step
-            for delta_col in (-1, 1):
-                sc = self.ep_col + delta_col
-                if in_bounds(starting_row, sc):
-                    pawn = self.grid[starting_row][sc]
-                    if pawn.type != 'P' or pawn.color != self.turn:
-                        continue
-                    candidate = Move(sr=starting_row, sc=sc, er=self.ep_row, ec=self.ep_col)
-                    if legal_move(self, candidate):
-                        legal_ep = True
-                        break
-
-        if legal_ep:
-            chars.append(str(self.ep_row))
-            chars.append(str(self.ep_col))
-        else:
-            chars.append('-')
-
-        return "".join(chars)
+        return board_key.position_key(self)
 
     def repetition_count(self, key: Optional[str] = None) -> int:
-        """Counts how many times key (or current position) appears in history."""
-        target_key = key if key is not None else self.position_key()
-        return self.history.count(target_key)
+        return board_key.repetition_count(self, key)
 
     def dead_position(self) -> bool:
-        """Checks for insufficient material to deliver checkmate under FIDE rules."""
-        minors = 0
-        bishops = 0
-        bishop_color = -1
-        bishops_same_color = True
-
-        for r in range(BOARD_SIZE):
-            for c in range(BOARD_SIZE):
-                p = self.grid[r][c]
-                if p.is_empty or p.type == 'K':
-                    continue
-                # If there are pawns, rooks, or queens, mate is possible
-                if p.type not in ('B', 'N'):
-                    return False
-                minors += 1
-                if p.type == 'B':
-                    bishops += 1
-                    sq_color = (r + c) % 2
-                    if bishop_color == -1:
-                        bishop_color = sq_color
-                    elif bishop_color != sq_color:
-                        bishops_same_color = False
-
-        # King vs King, or King + Minor vs King
-        if minors <= 1:
-            return True
-
-        # Only bishops present, and all bishops travel on the same square color
-        if bishops == minors and bishops_same_color:
-            return True
-
-        return False
+        return board_draws.dead_position(self)
 
     def automatic_draw(self) -> Tuple[bool, Optional[str]]:
-        """Checks mandatory draw conditions: 75-move rule, 5-fold repetition, dead position."""
-        from .movegen import is_in_check, generate_moves
-
-        # 1. Pick the first matching automatic-draw reason (if any).
-        reason = None
-        if self.halfmove_clock >= 150:
-            reason = "75-move rule"
-        elif self.repetition_count() >= 5:
-            reason = "fivefold repetition"
-        elif self.dead_position():
-            reason = "dead position"
-        if reason:
-            # Checkmate still wins — do not declare a draw if side to move is mated.
-            if is_in_check(self, self.turn) and not generate_moves(self):
-                return False, None
-            return True, reason
-        return False, None
+        return board_draws.automatic_draw(self)
 
     def insufficient_mating_material(self, side: Color) -> bool:
-        """Proves common material cases where this side cannot possibly mate.
+        return board_draws.insufficient_mating_material(self, side)
 
-        This is conservative: it does not solve arbitrary blocked positions.
-        Opponent pieces can help form a mating net, so a lone minor is not
-        automatically insufficient against an opponent with other material.
-        """
-        own = [p for row in self.grid for p in row if p.color == side]
-        all_pieces = [p for row in self.grid for p in row if not p.is_empty]
-        if any(p.type in ('P', 'R', 'Q') for p in own):
-            return False
-        if any(p.type == 'N' for p in own):
-            return (len(own) <= 2 and not any(
-                p.color != side and p.type not in ('K', 'Q') for p in all_pieces
-            ))
-        if any(p.type == 'B' for p in own):
-            shades = {(r + c) % 2 for r in range(BOARD_SIZE) for c in range(BOARD_SIZE)
-                      if self.grid[r][c].type == 'B'}
-            return len(shades) == 1 and not any(p.type in ('P', 'N') for p in all_pieces)
-        return True
-
-    def claimable_draw(self, intended_move: Optional['Move'] = None) -> Tuple[bool, Optional[str]]:
-        """Checks whether a player can claim a draw (50-move rule or 3-fold repetition)."""
-        from .movegen import legal_move, make_move, game_over, generate_moves
-
-        # A finished game cannot be replaced by a draw claim. In particular,
-        # checkmate takes precedence over a clock reaching 100 or 150.
-        if game_over(self)[0]:
-            return False, None
-
-        # 1. Claimable now on the current position (50-move or triple repeat).
-        if self.halfmove_clock >= 100:
-            return True, "50-move rule"
-        if self.repetition_count() >= 3:
-            return True, "threefold repetition"
-
-        # 2. Optional: would the claim hold after playing intended_move?
-        pos = self
-        has_intended = intended_move is not None
-        if has_intended:
-            if not legal_move(self, intended_move):
-                return False, None
-            after_move = self.clone()
-            make_move(after_move, intended_move)
-            pos = after_move
-            if not generate_moves(pos):
-                return False, None
-
-        if pos.halfmove_clock >= 100:
-            return True, "50-move rule"
-
-        needed = 2 if has_intended else 3
-        if pos.repetition_count() >= needed:
-            return True, "threefold repetition"
-
-        return False, None
+    def claimable_draw(
+        self, intended_move: Optional["Move"] = None
+    ) -> Tuple[bool, Optional[str]]:
+        return board_draws.claimable_draw(self, intended_move)
 
     def to_fen(self) -> str:
-        """Serializes current board state into FEN notation."""
         from .fen import board_to_fen
         return board_to_fen(self)
 
     def load_fen(self, fen: str) -> Tuple[bool, Optional[str]]:
-        """Parses, validates, and loads a chess position from a FEN string."""
         from .fen import load_fen_into
         return load_fen_into(self, fen)

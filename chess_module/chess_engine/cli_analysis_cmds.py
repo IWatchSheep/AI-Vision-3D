@@ -208,6 +208,9 @@ def handle_trace(session: GameSession, cmd: str) -> bool:
         return False
 
     arg_str = cmd[6:].strip() if lower.startswith("trace ") else ""
+    if not arg_str:
+        err("Type trace and moves, for example trace e2e4 e7e5.")
+        return True
     ok, report_text, bad_ply = trace_report(session.board, session.tracker, arg_str)
     if ok:
         print(report_text, end="")

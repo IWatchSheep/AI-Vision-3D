@@ -6,6 +6,7 @@ embeds CALC COUNT summaries so you can skim material without re-running CALC.
 """
 
 from typing import List, Optional
+from ..search_budget import bounded_search, search_checkpoint
 from ..constants import color_name
 from ..move import Move
 from ..board import Board
@@ -14,6 +15,7 @@ from ..tracker import Tracker, position_after
 from .calc import calc_report, report_mates, count_mate_in_one
 
 
+@bounded_search
 def replies_report(board: Board, tracker: Tracker, move: Move) -> str:
     """Generates the Stage 3B Replies report for `move`."""
     if not legal_move(board, move):
@@ -44,6 +46,7 @@ def replies_report(board: Board, tracker: Tracker, move: Move) -> str:
 
     # --- Classify each reply vs the mate threat, then attach CALC counts ---
     for rep in replies:
+        search_checkpoint()
         after_rep = after_board.clone()
         make_move(after_rep, rep, record_history=True)
         still_threat = (count_mate_in_one(after_rep, mover) > 0)
@@ -78,8 +81,11 @@ def replies_report(board: Board, tracker: Tracker, move: Move) -> str:
     return "\n".join(lines)
 
 
+@bounded_search
 def reply_detail(board: Board, tracker: Tracker, move: Move, reply: Move) -> Optional[str]:
     """Generates full CALC report for a single specific reply."""
+    if not legal_move(board, move):
+        raise ValueError("Cannot report an illegal move")
     after_board, tracker_after = position_after(board, tracker, move)
     if game_over(after_board)[0] or not legal_move(after_board, reply):
         return None

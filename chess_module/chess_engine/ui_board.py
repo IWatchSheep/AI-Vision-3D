@@ -15,7 +15,7 @@ from .constants import (
     in_bounds, color_name, row_col_text,
 )
 from .board import Board
-from .movegen import generate_moves, legal_destination_map
+from .movegen import generate_piece_moves, legal_destination_map
 
 
 def enable_windows_colors() -> None:
@@ -139,14 +139,16 @@ def list_piece_moves(position: Board, row: int, col: int) -> str:
     if piece.is_empty:
         return ""
 
+    # Generate only this piece's moves; previews call this for every piece.
     view = position.clone()
     view.turn = piece.color
-    moves = generate_moves(view)
+    moves = []
+    generate_piece_moves(view, moves, row, col)
 
     seen = set()
     result = []
     for m in moves:
-        if m.sr == row and m.sc == col and (m.er, m.ec) not in seen:
+        if (m.er, m.ec) not in seen:
             seen.add((m.er, m.ec))
             result.append(row_col_text(m.er, m.ec))
 
