@@ -17,6 +17,8 @@ Import tip
 
 Both modules define compare / rank / print_fill. Import from the submodule
 you mean so you do not grab the wrong one.
+
+Demos (stdout only): show_strategies.py, show_shapes.py, show_build.py
 """
 
 from calculator.pattern import (

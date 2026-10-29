@@ -73,7 +73,59 @@ def report_mates(board: Board, side: Color) -> List[str]:
 
 
 def count_mate_in_one(board: Board, side: Color) -> int:
+    """Number of distinct checkmate moves available for ``side`` right now."""
     return len(report_mates(board, side))
+
+
+def _append_link_changes(
+    lines: List[str],
+    keyword: str,
+    protect: bool,
+    scan_board: Board,
+    scan_ids: List[List[int]],
+    other_board: Board,
+    other_present: List[bool],
+    other_row: List[int],
+    other_col: List[int],
+    names: Dict[int, str],
+) -> None:
+    """Add PROTECT+/PROTECT-/ATTACK+/ATTACK- lines for one before/after view."""
+    for side in (WHITE, BLACK):
+        for pr in range(BOARD_SIZE):
+            for pc in range(BOARD_SIZE):
+                p = scan_ids[pr][pc]
+                if not (0 < p < CALC_MAX_ID) or scan_board.grid[pr][pc].color != side:
+                    continue
+                for qr in range(BOARD_SIZE):
+                    for qc in range(BOARD_SIZE):
+                        q = scan_ids[qr][qc]
+                        if not (0 < q < CALC_MAX_ID):
+                            continue
+                        if not linked(scan_board, pr, pc, qr, qc, protect):
+                            continue
+                        in_other = (
+                            other_present[p]
+                            and other_present[q]
+                            and linked(
+                                other_board,
+                                other_row[p], other_col[p],
+                                other_row[q], other_col[q],
+                                protect,
+                            )
+                        )
+                        if in_other:
+                            continue
+                        p_name = names.get(
+                            p,
+                            f"{scan_board.grid[pr][pc].type} "
+                            f"{square_text(square_index(pr, pc))}",
+                        )
+                        q_name = names.get(
+                            q,
+                            f"{scan_board.grid[qr][qc].type} "
+                            f"{square_text(square_index(qr, qc))}",
+                        )
+                        lines.append(f"{keyword} {color_name(side)} {p_name} {q_name}")
 
 
 def calc_report(board: Board, tracker: Tracker, move: Move) -> str:
@@ -97,7 +149,8 @@ def calc_report(board: Board, tracker: Tracker, move: Move) -> str:
     from_sq = square_text(square_index(move.sr, move.sc))
     to_sq = square_text(square_index(move.er, move.ec))
 
-    # Header
+    # --- Report sections (order matches CALC spec) ---
+    # Header: move, castle, captures, promotion
     lines.append(f"CALC BEGIN {move.uci}")
     lines.append(f"MOVED {color_name(mover.color)} {mover.type} {from_sq} {to_sq}")
 
@@ -118,7 +171,7 @@ def calc_report(board: Board, tracker: Tracker, move: Move) -> str:
         promo_char = move.promotion if move.promotion and move.promotion != '\0' else 'Q'
         lines.append(f"PROMOTED {color_name(mover.color)} {from_sq} {to_sq} {promo_char}")
 
-    # ZERO
+    # ZERO: pieces with no legal moves (before/after/both)
     for side in (WHITE, BLACK):
         for r in range(BOARD_SIZE):
             for c in range(BOARD_SIZE):
@@ -135,7 +188,7 @@ def calc_report(board: Board, tracker: Tracker, move: Move) -> str:
                 when = "both" if (before_zero and after_zero) else ("after" if after_zero else "before")
                 lines.append(f"ZERO {color_name(side)} {pname} {cause} {when}")
 
-    # LOST, GAINED, RESTORED
+    # LOST / GAINED / RESTORED: per-piece destination sets from tracker snapshots
     lost_counts: Dict[Color, int] = {WHITE: 0, BLACK: 0}
     gained_counts: Dict[Color, int] = {WHITE: 0, BLACK: 0}
     restored_counts: Dict[Color, int] = {WHITE: 0, BLACK: 0}
@@ -145,7 +198,7 @@ def calc_report(board: Board, tracker: Tracker, move: Move) -> str:
             for r in range(BOARD_SIZE):
                 for c in range(BOARD_SIZE):
                     pid = tracker.grid[r][c]
-                    if pid <= 0 or pid >= CALC_MAX_ID or tracker.color[pid] != side or not s1.present[pid]:
+                    if pid <= 0 or pid >= CALC_MAX_ID or tracker.color[pid] != side:
                         continue
                     sq_list = []
                     for i in range(TOTAL_SQUARES):
@@ -194,78 +247,23 @@ def calc_report(board: Board, tracker: Tracker, move: Move) -> str:
                 lines.append(f"{kw} {color_name(side)} {square_text(i)}{cap_suffix}")
                 target_dict[side] += 1
 
-    # LINKS: PROTECT+, PROTECT-, ATTACK+, ATTACK-
-    for side in (WHITE, BLACK):
-        for pr in range(BOARD_SIZE):
-            for pc in range(BOARD_SIZE):
-                p = after_id[pr][pc]
-                if not (0 < p < CALC_MAX_ID) or after_board.grid[pr][pc].color != side:
-                    continue
-                for qr in range(BOARD_SIZE):
-                    for qc in range(BOARD_SIZE):
-                        q = after_id[qr][qc]
-                        if not (0 < q < CALC_MAX_ID) or not linked(after_board, pr, pc, qr, qc, True):
-                            continue
-                        in_other = (s0.present[p] and s0.present[q] and
-                                    linked(board, s0.row[p], s0.col[p], s0.row[q], s0.col[q], True))
-                        if not in_other:
-                            p_name = names.get(p, f"{after_board.grid[pr][pc].type} {square_text(square_index(pr, pc))}")
-                            q_name = names.get(q, f"{after_board.grid[qr][qc].type} {square_text(square_index(qr, qc))}")
-                            lines.append(f"PROTECT+ {color_name(side)} {p_name} {q_name}")
-
-    for side in (WHITE, BLACK):
-        for pr in range(BOARD_SIZE):
-            for pc in range(BOARD_SIZE):
-                p = tracker.grid[pr][pc]
-                if not (0 < p < CALC_MAX_ID) or board.grid[pr][pc].color != side:
-                    continue
-                for qr in range(BOARD_SIZE):
-                    for qc in range(BOARD_SIZE):
-                        q = tracker.grid[qr][qc]
-                        if not (0 < q < CALC_MAX_ID) or not linked(board, pr, pc, qr, qc, True):
-                            continue
-                        in_other = (s1.present[p] and s1.present[q] and
-                                    linked(after_board, s1.row[p], s1.col[p], s1.row[q], s1.col[q], True))
-                        if not in_other:
-                            p_name = names.get(p, f"{board.grid[pr][pc].type} {square_text(square_index(pr, pc))}")
-                            q_name = names.get(q, f"{board.grid[qr][qc].type} {square_text(square_index(qr, qc))}")
-                            lines.append(f"PROTECT- {color_name(side)} {p_name} {q_name}")
-
-    for side in (WHITE, BLACK):
-        for pr in range(BOARD_SIZE):
-            for pc in range(BOARD_SIZE):
-                p = after_id[pr][pc]
-                if not (0 < p < CALC_MAX_ID) or after_board.grid[pr][pc].color != side:
-                    continue
-                for qr in range(BOARD_SIZE):
-                    for qc in range(BOARD_SIZE):
-                        q = after_id[qr][qc]
-                        if not (0 < q < CALC_MAX_ID) or not linked(after_board, pr, pc, qr, qc, False):
-                            continue
-                        in_other = (s0.present[p] and s0.present[q] and
-                                    linked(board, s0.row[p], s0.col[p], s0.row[q], s0.col[q], False))
-                        if not in_other:
-                            p_name = names.get(p, f"{after_board.grid[pr][pc].type} {square_text(square_index(pr, pc))}")
-                            q_name = names.get(q, f"{after_board.grid[qr][qc].type} {square_text(square_index(qr, qc))}")
-                            lines.append(f"ATTACK+ {color_name(side)} {p_name} {q_name}")
-
-    for side in (WHITE, BLACK):
-        for pr in range(BOARD_SIZE):
-            for pc in range(BOARD_SIZE):
-                p = tracker.grid[pr][pc]
-                if not (0 < p < CALC_MAX_ID) or board.grid[pr][pc].color != side:
-                    continue
-                for qr in range(BOARD_SIZE):
-                    for qc in range(BOARD_SIZE):
-                        q = tracker.grid[qr][qc]
-                        if not (0 < q < CALC_MAX_ID) or not linked(board, pr, pc, qr, qc, False):
-                            continue
-                        in_other = (s1.present[p] and s1.present[q] and
-                                    linked(after_board, s1.row[p], s1.col[p], s1.row[q], s1.col[q], False))
-                        if not in_other:
-                            p_name = names.get(p, f"{board.grid[pr][pc].type} {square_text(square_index(pr, pc))}")
-                            q_name = names.get(q, f"{board.grid[qr][qc].type} {square_text(square_index(qr, qc))}")
-                            lines.append(f"ATTACK- {color_name(side)} {p_name} {q_name}")
+    # LINKS: new (+) or removed (-) protect/attack pairs after the move.
+    _append_link_changes(
+        lines, "PROTECT+", True,
+        after_board, after_id, board, s0.present, s0.row, s0.col, names,
+    )
+    _append_link_changes(
+        lines, "PROTECT-", True,
+        board, tracker.grid, after_board, s1.present, s1.row, s1.col, names,
+    )
+    _append_link_changes(
+        lines, "ATTACK+", False,
+        after_board, after_id, board, s0.present, s0.row, s0.col, names,
+    )
+    _append_link_changes(
+        lines, "ATTACK-", False,
+        board, tracker.grid, after_board, s1.present, s1.row, s1.col, names,
+    )
 
     # CHECK
     for side in (WHITE, BLACK):

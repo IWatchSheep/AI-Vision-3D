@@ -1,8 +1,8 @@
-"""Game session: board + where we are in select -> preview -> finalize.
+"""Holds everything for one game: board, turn, and move-entry step.
 
-Step flow for every move:
-  PICK_PIECE -> PICK_DESTINATION -> CONFIRM_PREVIEW -> (F plays the move)
-  Promotion inserts CHOOSE_PROMOTION before the preview.
+The session remembers whether you are picking a piece, a destination, choosing
+promotion, or confirming a preview. Playing a move always ends with F after a
+preview; this module does not read keyboard input itself.
 """
 
 from enum import Enum
@@ -22,6 +22,9 @@ from .analysis import (
 )
 from .ui import show_step2_after
 from .move_memory import MoveMemory
+from .movegen import legal_move
+
+# MAX_COMMAND_CHARS (from constants) limits raw input length in process_command.
 
 # Re-export for tests / callers that imported it from this module.
 __all__ = [
@@ -41,7 +44,7 @@ class Step(Enum):
 
 
 def err(message: str) -> None:
-    """Print a red error message."""
+    """Print an error in red so it stands out from normal board output."""
     print(f"{RED}{message}{RESET}")
 
 
@@ -55,7 +58,7 @@ def move_label(move: Move) -> str:
 def warn_slow_search(depth: int) -> None:
     """Warn the user when a deep search may take a long time."""
     if depth >= 5:
-        print(f"Searching {depth} plies. This can take minutes.")
+        print(f"Searching {depth} plies. Analysis stops at its work limit.")
 
 
 def parse_bounded_int(text: str, lo: int, hi: int) -> Optional[int]:
@@ -64,7 +67,7 @@ def parse_bounded_int(text: str, lo: int, hi: int) -> Optional[int]:
     Rejects signs, spaces, non-ASCII digits, and very long digit strings
     so int() cannot be fed a huge number.
     """
-    if not text or not text.isascii() or not text.isdigit():
+    if not isinstance(text, str) or not text or not text.isascii() or not text.isdigit():
         return None
     if len(text) > 18:
         return None
@@ -78,7 +81,9 @@ def parse_bounded_int(text: str, lo: int, hi: int) -> Optional[int]:
 
 
 def sanitize_display_text(text: str, max_len: int = 64) -> str:
-    """Strip control characters so user text cannot corrupt the terminal."""
+    """Make untrusted text safe to print (no escape codes); trim long strings."""
+    if not isinstance(text, str):
+        return ""
     cleaned = "".join(ch for ch in text if ch.isprintable())
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len] + "..."
@@ -115,20 +120,24 @@ class GameSession:
         return self.step == Step.CHOOSE_PROMOTION
 
     def has_selection(self) -> bool:
+        """True after step 1 (start square) until N or F clears the flow."""
         return in_bounds(self.selected_row, self.selected_col)
 
     def clear_selection(self) -> None:
+        """Reset to step 1: no piece selected, no preview."""
         self.selected_row = -1
         self.selected_col = -1
         self.step = Step.PICK_PIECE
         self.memory.clear_current()
 
     def select_piece(self, row: int, col: int) -> None:
+        """Step 1 done — next two-character input will be treated as destination."""
         self.selected_row = row
         self.selected_col = col
         self.step = Step.PICK_DESTINATION
 
     def begin_promotion(self, move: Move) -> None:
+        """Pawn reached the back rank; wait for Q/R/B/N before showing preview."""
         self.pending_promotion = move
         self.step = Step.CHOOSE_PROMOTION
 
@@ -138,8 +147,11 @@ class GameSession:
         self.memory.clear_current()
 
     def invalidate_preview(self) -> None:
-        """Preview became illegal; keep selection, ask for a new destination."""
-        self.step = Step.PICK_DESTINATION
+        """Preview became illegal; keep selection if any, ask for a new destination."""
+        if self.has_selection():
+            self.step = Step.PICK_DESTINATION
+        else:
+            self.step = Step.PICK_PIECE
         self.memory.clear_current()
 
     def clear_analysis_options(self) -> None:
@@ -165,6 +177,8 @@ class GameSession:
 
     def set_preview(self, move: Move) -> None:
         """Show BEFORE/AFTER for a legal destination and mark preview ready."""
+        if not legal_move(self.board, move):
+            raise ValueError("Cannot preview an illegal move")
         show_step2_after(self.board, move)
         self.show_preview_extras(move)
         self.memory.set_current(self.board, move)

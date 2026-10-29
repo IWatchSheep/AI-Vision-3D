@@ -64,11 +64,17 @@ class CompareResult:
         return self.hash_count - self.x_count
 
 
+def require_compare_result(result: object) -> None:
+    """Raise ValueError if result is not a CompareResult."""
+    if not isinstance(result, CompareResult):
+        raise ValueError(f"expected CompareResult, got {type(result).__name__}")
+
+
 class PatternWindow:
     """
     Short memory of chess compares.
 
-    Same public names as before (past, current, set_current, accept).
+    Same public names as before (past, current, set_current, clear_current, accept).
     Storage is the shared MemoryWindow helper.
     """
 
@@ -81,6 +87,10 @@ class PatternWindow:
 
     @past.setter
     def past(self, value: list[CompareResult]) -> None:
+        if not isinstance(value, list):
+            raise ValueError("past must be a list")
+        for item in value:
+            require_compare_result(item)
         # replace_past enforces the size limit (direct assign could bypass it).
         self._memory.replace_past(value)
 
@@ -90,11 +100,18 @@ class PatternWindow:
 
     @current.setter
     def current(self, value: CompareResult | None) -> None:
+        if value is not None:
+            require_compare_result(value)
         self._memory.current = value
 
     def set_current(self, result: CompareResult) -> None:
         """Put a compare on screen without accepting it."""
+        require_compare_result(result)
         self._memory.set_current(result)
+
+    def clear_current(self) -> None:
+        """Drop only the preview."""
+        self._memory.clear_current()
 
     def accept(self) -> None:
         """Move current into past; keep at most PAST_LIMIT items."""
@@ -181,6 +198,7 @@ def rank(seen_board: list[str]) -> list[CompareResult]:
     Highest score first. Ties break by strategy number (lower first).
     """
     require_board(seen_board, label="seen board")
+    # --- Score all 20 dolls, then sort (order in STRATEGIES does not matter) ---
     results = [compare(doll, seen_board) for doll in STRATEGIES]
     results.sort(key=lambda item: (-item.score, item.strategy.number))
     return results

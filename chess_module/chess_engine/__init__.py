@@ -1,4 +1,20 @@
-﻿"""Chess engine package converted from C99 implementation."""
+"""Chess engine package converted from C99 implementation.
+
+Beginner map (open the small file that matches your question):
+  main.py               — run the game loop
+  cli_commands.py       — routes every typed command
+  cli_move_cmds.py      — squares, F finalize, FEN, quit/restart
+  ui.py / ui_changes.py — board display and preview (before F)
+  board.py / fen.py     — position, draws, load/save FEN
+  attacks.py            — can a piece hit a square? is the king in check?
+  move_legality.py      — is this Move allowed right now?
+  move_apply.py         — play a move on the board
+  move_gen.py           — list every legal move
+  cli_*.py              — other typed commands (help, goals, analysis)
+  study/                — fact reports (calc, replies, goals, exchange)
+
+Playing: start square → destination (preview) → F to play.
+"""
 
 from .constants import (
     Color, EMPTY, WHITE, BLACK,

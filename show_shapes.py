@@ -3,6 +3,7 @@
 Console program: show shape pictures, fills, lists, and imaginary looks.
 
 Display only. Does not accept an observation into ShapeWindow.past.
+For a notepad workflow, construct ShapeWindow in your own script and call accept().
 """
 
 from calculator.shape import (

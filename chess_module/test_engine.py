@@ -1,4 +1,4 @@
-﻿"""Comprehensive unit tests for chess_engine."""
+"""Comprehensive unit tests for chess_engine."""
 
 import unittest
 from chess_engine.constants import (

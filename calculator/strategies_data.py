@@ -1,8 +1,18 @@
 """
 Raw chess strategy doll records (ASCII boards are the source of truth).
 
-This file holds only data. calculator.strategies turns each record into a
-Strategy object, validates boards, and checks FEN against ASCII.
+How to read each record (beginners)
+------------------------------------
+Each dict in RAW_DOLLS becomes one Strategy via calculator.strategies:
+
+  number, id, name   — stable identity (id is what get_strategy() accepts)
+  stage, sentence    — human description of the posed position
+  board              — 8 strings, rank 8 first; '.' empty, K/k kings, etc.
+  fen                — full FEN; piece field must match board when encoded
+  joints             — future-move hints (printed only; never applied here)
+
+Do not edit boards by hand without updating fen. Validation runs at import time.
+This file is data only — no compare logic lives here.
 """
 
 from __future__ import annotations

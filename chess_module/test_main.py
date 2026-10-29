@@ -358,6 +358,21 @@ class TestMainCli(unittest.TestCase):
             self.assertIsNone(res)
             self.assertEqual(s.step, Step.PICK_PIECE)
 
+    def test_routes_real_requires_exact_real_token(self) -> None:
+        """'routes realx 3' must not be treated as a REAL search."""
+        s = GameSession()
+        with contextlib.redirect_stdout(self.buf):
+            process_command(s, "goal e4 1")
+            self.assertEqual(process_command(s, "routes realx 3"), "unknown")
+        self.assertNotIn("ROUTES BEGIN", self.buf.getvalue())
+
+        self.buf = io.StringIO()
+        with contextlib.redirect_stdout(self.buf):
+            self.assertIsNone(process_command(s, "routes real 1"))
+        out = self.buf.getvalue()
+        self.assertIn("ROUTES BEGIN", out)
+        self.assertIn(" REAL", out)
+
 
 if __name__ == "__main__":
     unittest.main()

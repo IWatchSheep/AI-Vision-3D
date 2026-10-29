@@ -1,4 +1,4 @@
-﻿"""Shared chess constants and safe square helpers.
+"""Shared chess constants and safe square helpers.
 
 Board layout reminder (row, col):
   row 0 = rank 8 (Black's back rank)
@@ -40,7 +40,7 @@ CASTLE_QUEENSIDE_KING_DEST_COL = 2
 CASTLE_KINGSIDE_ROOK_DEST_COL = 5
 CASTLE_QUEENSIDE_ROOK_DEST_COL = 3
 
-# Size limits (guard against huge input / runaway lists)
+# Size limits — cap strings and list growth so hostile input cannot DoS the engine.
 FEN_TEXT_SIZE = 100
 # Absolute cap for load_fen / fen commands (DoS guard). Fits any legal FEN.
 FEN_TEXT_MAX = 256
@@ -92,6 +92,7 @@ def opposite(color: Color) -> Color:
 
 
 def color_name(color: Color) -> str:
+    """Human-readable side label for reports and memory output."""
     if color == Color.WHITE:
         return "White"
     if color == Color.BLACK:

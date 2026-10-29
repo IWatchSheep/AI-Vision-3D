@@ -1,6 +1,7 @@
-﻿"""One chess piece (or an empty square).
+"""What sits on one square: piece type, color, or empty.
 
-Pieces are frozen (immutable). To "change" a square, put a new Piece there.
+Pieces are frozen (immutable). To "change" a square, assign a new Piece there
+instead of mutating the old one — that keeps board updates simple and safe.
 """
 
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ class Piece:
 
     @property
     def is_empty(self) -> bool:
+        """True when this square has no piece."""
         return self.color == EMPTY or self.type == "\0"
 
     @property
@@ -38,6 +40,7 @@ class Piece:
 
     @property
     def value(self) -> int:
+        """Material score used in evaluation (pawn=1 … queen=9)."""
         return PIECE_VALUES.get(self.type, 0)
 
 

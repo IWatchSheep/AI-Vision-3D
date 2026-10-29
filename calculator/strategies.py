@@ -1,4 +1,4 @@
-﻿"""
+"""
 Chess strategy dolls: types, validation, lookup, and printing.
 
 The 20 hardcoded doll records live in calculator.strategies_data (ASCII boards

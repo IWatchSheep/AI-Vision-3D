@@ -3,7 +3,8 @@
 Console program: show the 20 strategy dolls and how they fill against seen boards.
 
 Display only. Does not accept a compare into PatternWindow.past.
-Does not move joints.
+Does not move joints. PatternWindow (calculator.pattern) wraps the same memory
+rules as calculator.window.MemoryWindow.
 """
 
 from calculator.pattern import (

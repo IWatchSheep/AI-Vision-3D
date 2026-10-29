@@ -1,4 +1,10 @@
-"""Stage 3C: game tree search (LOOP and TRACE reports)."""
+"""Stage 3C: game tree search (LOOP and TRACE reports).
+
+LOOP walks the move tree up to a ply limit and summarizes mates/stalemates.
+TRACE replays a UCI move list and prints one CALC report per ply.
+"""
+
+from ..search_budget import bounded_search
 
 from typing import List, Tuple
 from ..constants import BOARD_SIZE, WHITE, BLACK, color_name, HISTORY_MAX_LEN, LOOP_MAX_DEPTH
@@ -20,11 +26,14 @@ def zero_move_pieces(board: Board, moves: List[Move]) -> int:
     return zero
 
 
+@bounded_search
 def mate_forced(board: Board, n: int) -> bool:
     """Minimax search checking if side to move can force checkmate in n plies."""
+    _require_mate_depth(n)
     if n < 1 or board.automatic_draw()[0]:
         return False
 
+    # --- Try each move; mate on n=1, or all replies must fail when n >= 3 ---
     moves = generate_moves(board)
     for m in moves:
         next_b = board.clone()
@@ -49,8 +58,18 @@ def mate_forced(board: Board, n: int) -> bool:
     return False
 
 
+def _require_mate_depth(depth: int) -> None:
+    if (not isinstance(depth, int) or isinstance(depth, bool)
+            or not 0 <= depth <= LOOP_MAX_DEPTH):
+        raise ValueError(f"depth must be between 0 and {LOOP_MAX_DEPTH}")
+
+
+@bounded_search
 def first_move_forces(after_board: Board, n: int) -> bool:
     """Checks whether first move forces checkmate in n plies."""
+    _require_mate_depth(n)
+    if n < 1:
+        return False
     replies = generate_moves(after_board)
     if not replies:
         return is_in_check(after_board, after_board.turn)
@@ -68,12 +87,15 @@ def first_move_forces(after_board: Board, n: int) -> bool:
     return True
 
 
+@bounded_search
 def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
     """Exhaustive game tree search up to `depth` plies."""
     lines: List[str] = []
     mover = board.turn
     if not isinstance(depth, int) or isinstance(depth, bool) or depth > LOOP_MAX_DEPTH:
         raise ValueError(f"depth must be an integer no greater than {LOOP_MAX_DEPTH}")
+    if not isinstance(zero_k, int) or isinstance(zero_k, bool) or zero_k < 0:
+        raise ValueError("zero_k must be a non-negative integer")
 
     # Guard depth so positions[ply] / current_line[ply] cannot underflow.
     if depth < 1:
@@ -108,6 +130,8 @@ def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
     current_line: List[Move] = [Move(0, 0, 0, 0) for _ in range(depth)]
     reply_reaches_mate = [False]
 
+    # --- Depth-first walk: record mates, draws, and optional ZERO counts ---
+    @bounded_search
     def loop_walk(b: Board, ply: int, first_idx: int) -> None:
         moves = sorted_moves(b)
         positions[ply] += 1
@@ -196,6 +220,7 @@ def trace_report(
     cur_b = board.clone()
     cur_t = tracker.clone()
 
+    # --- Replay from the start position; one CALC block per parsed move ---
     for idx, m in enumerate(parsed_moves):
         lines.append(f"TRACE PLY {idx + 1} {m.uci}")
         lines.append(calc_report(cur_b, cur_t, m).rstrip())

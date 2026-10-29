@@ -1,11 +1,22 @@
-"""Study/analysis tools, split into small modules.
+"""Chess study reports: text facts about a position and candidate moves.
 
-common    shared types and helpers (Goal, RouteVector, risk toggle, ...)
-calc      Stage 3A  CALC report
-replies   Stage 3B  REPLIES report
-search    Stage 3C  LOOP and TRACE reports
-goals     Stage 3D  goals, routes, marks, distance order, support
-exchange  Stage 3E/3F  exchanges, move order, compare
+The engine already knows legal moves; these modules *describe* what would change
+if you played a move, how replies look, whether goals are reachable, and how
+captures compare. Each stage (3A–3F) prints a structured report the CLI or
+tests can read.
+
+Module map (read the file that matches the report you care about):
+  common           shared types (Goal, RouteVector, risk toggle, helpers)
+  calc             Stage 3A — CALC (one move, before/after facts)
+  replies          Stage 3B — REPLIES (opponent answers + threat labels)
+  search           Stage 3C — LOOP (tree search) and TRACE (move list + CALC)
+  goal_basics      Stage 3D — parse goals, PASS distances
+  goal_routes_pass Stage 3D — ROUTES in PASS mode (opponent passes)
+  goal_routes_real Stage 3D — ROUTES in REAL mode (opponent replies)
+  goal_marks       Stage 3D — GOAL MARKS, DISTANCE ORDER, SUPPORT
+  exchange_core    Stage 3E — EXCHANGE and ORDER
+  exchange_compare Stage 3F — COMPARE (side-by-side moves)
+  goals / exchange thin re-exports so older ``from study import …`` paths work
 """
 
 from .common import (

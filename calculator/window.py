@@ -80,6 +80,7 @@ class MemoryWindow(Generic[T]):
         """
         if not isinstance(items, list):
             raise ValueError("past must be a list")
+        self.limit = _require_positive_limit(self.limit)
         self.past = list(items)
         self._trim_past()
 

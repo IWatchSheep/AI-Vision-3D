@@ -1,4 +1,7 @@
-﻿"""A single chess move: from-square, to-square, optional promotion."""
+"""One candidate move: start square, end square, optional promotion letter.
+
+Used everywhere moves are parsed, sorted, compared, or sent to the legality checker.
+"""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -8,6 +11,8 @@ from .constants import PROMOTION_PIECES, parse_square, in_bounds, row_col_text
 
 def promotion_rank(promotion: str) -> int:
     """Sort order for promotions: Q, R, B, N, then none."""
+    if not isinstance(promotion, str):
+        return 0
     order = {"Q": 1, "R": 2, "B": 3, "N": 4}
     return order.get(promotion, 0)
 
@@ -31,7 +36,7 @@ class Move:
         if not (in_bounds(self.sr, self.sc) and in_bounds(self.er, self.ec)):
             return "????"
         promo = ""
-        if self.promotion and self.promotion != "\0":
+        if isinstance(self.promotion, str) and self.promotion and self.promotion != "\0":
             promo = self.promotion.lower()
         return f"{row_col_text(self.sr, self.sc)}{row_col_text(self.er, self.ec)}{promo}"
 
@@ -40,11 +45,13 @@ class Move:
         return (self.sr, self.sc, self.er, self.ec, promotion_rank(self.promotion))
 
     def __lt__(self, other: "Move") -> bool:
+        """Enables sorted(moves) to use the same order as the C engine."""
         return self.sort_key() < other.sort_key()
 
 
 def parse_move_text(text: str) -> Optional[Move]:
     """Parse 'e2e4' or 'e7e8q'. Returns None if the text is not a move."""
+    # Reject non-ASCII or wrong length so junk input cannot become a Move.
     if not isinstance(text, str) or not text.isascii() or len(text) not in (4, 5):
         return None
 

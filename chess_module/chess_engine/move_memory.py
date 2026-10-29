@@ -110,11 +110,13 @@ def build_entry(board: Board, move: Move) -> MoveMemoryEntry:
     """Clone the board, play the move on the copy, collect facts. Live board unchanged."""
     if not legal_move(board, move):
         raise ValueError("Cannot remember an illegal move")
+    # 1. Snapshot FEN before/after on a clone so the live board stays untouched.
     fen_before = board.to_fen()
     after = board.clone()
     make_move(after, move)
     fen_after = after.to_fen()
 
+    # 2. Diff mobility for all pieces except the mover.
     gained, lost, unchanged = _other_piece_destination_changes(board, after, move)
     changed = _piece_changed_squares(board, after)
 

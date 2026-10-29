@@ -1,23 +1,29 @@
-﻿"""Main entry point for two-player interactive chess.
+"""Start the two-player chess game in the terminal.
 
-How a move works (always three steps):
-  1. Type a start square   (example: e2)
-  2. Type a destination    (example: e4)  -> preview appears, nothing is played yet
-  3. Type F                -> the move is finalized / played
+This file runs the main loop: show the board, read your command, and repeat until
+checkmate, draw, quit, or an invalid position. All typing rules live in cli_commands;
+this file only wires display + input together.
 
-Type N at any time to cancel and pick a different piece.
-Type help for a command list.
+Move flow (every time):
+  1. Start square (e2)
+  2. Destination (e4) — preview only; the board does not change yet
+  3. F — play the move for real
+
+N cancels selection; help lists commands.
 """
 
-from chess_engine.constants import WHITE, BLACK, CYAN, RESET
-from chess_engine.movegen import is_in_check, has_king, game_over
-from chess_engine.ui import display, print_selection_near_prompt, enable_windows_colors
-from chess_engine.cli_session import GameSession, err, sanitize_display_text
-from chess_engine.cli_commands import (
-    print_instructions,
-    build_prompt,
-    process_command,
-)
+if __package__:
+    from .chess_engine.constants import WHITE, BLACK, CYAN, RESET
+    from .chess_engine.movegen import is_in_check, has_king, game_over
+    from .chess_engine.ui import display, print_selection_near_prompt, enable_windows_colors
+    from .chess_engine.cli_session import GameSession, err, sanitize_display_text
+    from .chess_engine.cli_commands import print_instructions, build_prompt, process_command
+else:
+    from chess_engine.constants import WHITE, BLACK, CYAN, RESET
+    from chess_engine.movegen import is_in_check, has_king, game_over
+    from chess_engine.ui import display, print_selection_near_prompt, enable_windows_colors
+    from chess_engine.cli_session import GameSession, err, sanitize_display_text
+    from chess_engine.cli_commands import print_instructions, build_prompt, process_command
 
 
 def main() -> None:
@@ -29,7 +35,7 @@ def main() -> None:
     while True:
         board = session.board
 
-        # Both kings must exist (guards against bad FEN / broken state).
+        # Sanity check after FEN load or bugs — both kings must be on the board.
         if not has_king(board, WHITE) or not has_king(board, BLACK):
             print("Invalid position: both kings must be on the board.")
             break
@@ -54,6 +60,7 @@ def main() -> None:
         print_instructions(session)
         print_selection_near_prompt(board, session.selected_row, session.selected_col)
 
+        # Read one line; empty input just redisplays the board.
         try:
             line = input(build_prompt(session)).strip()
         except (EOFError, KeyboardInterrupt):

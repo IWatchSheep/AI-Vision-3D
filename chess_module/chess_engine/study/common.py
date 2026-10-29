@@ -7,10 +7,10 @@ switch, and helper functions that several study modules use.
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import List
-from ..constants import BOARD_SIZE, TOTAL_SQUARES, Color
+from ..constants import BOARD_SIZE, TOTAL_SQUARES, Color, in_bounds
 from ..move import Move
 from ..board import Board
-from ..movegen import sorted_moves, make_move, piece_attacks
+from ..movegen import sorted_moves, make_move, piece_attacks, legal_move
 
 
 # ----------------------------------------------------------------------------
@@ -18,12 +18,16 @@ from ..movegen import sorted_moves, make_move, piece_attacks
 # ----------------------------------------------------------------------------
 
 class GoalCondition(Enum):
-    COND_REACH = 0
-    COND_PROTECTED = 1
+    """What “success” means on a goal square in PASS/REAL analysis."""
+
+    COND_REACH = 0       # friendly piece occupies the square
+    COND_PROTECTED = 1   # friendly piece there and defended by another friendly
 
 
 @dataclass
 class Goal:
+    """User-defined target: squares (or king ring) plus a move budget (limit)."""
+
     active: bool = False
     king: bool = False
     count: int = 0
@@ -32,12 +36,16 @@ class Goal:
 
 
 class RealResult(IntEnum):
+    """Summary of REAL-mode goal search (opponent gets full replies)."""
+
     REAL_ELSE = 0
     REAL_POSSIBLE = 1
     REAL_FORCED = 2
 
 
 class MaterialResult(IntEnum):
+    """Whether capture sequences stay materially safe for the mover."""
+
     MATERIAL_ELSE = 0
     MATERIAL_POSSIBLE = 1
     MATERIAL_FORCED = 2
@@ -45,6 +53,8 @@ class MaterialResult(IntEnum):
 
 @dataclass
 class RouteVector:
+    """One PASS-mode path to a goal square, with protector/attacker counts."""
+
     own: int = 0
     protectors: int = 0
     attackers: int = 0
@@ -78,6 +88,8 @@ def get_goal_show_risk() -> bool:
 
 def move_distance(m: Move) -> int:
     """Chebyshev distance (King distance): max(|dr|, |dc|)."""
+    if not isinstance(m, Move) or not in_bounds(m.sr, m.sc) or not in_bounds(m.er, m.ec):
+        return 0
     return max(abs(m.er - m.sr), abs(m.ec - m.sc))
 
 
@@ -101,6 +113,10 @@ def pass_moves(board: Board, side: Color) -> List[Move]:
 
 def pass_play(board: Board, move: Move, side: Color) -> None:
     """Plays move in PASS mode where opponent passes."""
+    view = board.clone()
+    view.turn = side
+    if not legal_move(view, move):
+        raise ValueError("Cannot play an illegal PASS move")
     board.turn = side
     make_move(board, move)
     board.turn = side
@@ -111,7 +127,7 @@ def pass_play(board: Board, move: Move, side: Color) -> None:
 def pieces_on_square(board: Board, sq: int, side: Color) -> int:
     """Counts friendly pieces attacking/defending sq (excluding piece on sq itself)."""
     # Reject bad indexes: Python would accept grid[-1] and give a wrong answer.
-    if not isinstance(sq, int) or sq < 0 or sq >= TOTAL_SQUARES:
+    if not isinstance(sq, int) or isinstance(sq, bool) or sq < 0 or sq >= TOTAL_SQUARES:
         return 0
     count = 0
     tr, tc = sq // BOARD_SIZE, sq % BOARD_SIZE
@@ -125,4 +141,7 @@ def pieces_on_square(board: Board, sq: int, side: Color) -> int:
 
 
 def piece_value(ptype: str) -> int:
+    """Standard piece values used in exchange/AT-RISK lines (not engine eval)."""
+    if not isinstance(ptype, str):
+        return 0
     return {'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9}.get(ptype, 0)

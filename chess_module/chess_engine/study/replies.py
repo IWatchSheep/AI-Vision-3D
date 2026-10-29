@@ -1,4 +1,9 @@
-"""Stage 3B: opponent reply analysis (REPLIES report)."""
+"""Stage 3B: opponent reply analysis (REPLIES report).
+
+After your move, lists every legal reply and labels it STOPS / LEAVES /
+ALLOWS / NO-THREAT relative to mate-in-one threats. Each reply line also
+embeds CALC COUNT summaries so you can skim material without re-running CALC.
+"""
 
 from typing import List, Optional
 from ..constants import color_name
@@ -37,6 +42,7 @@ def replies_report(board: Board, tracker: Tracker, move: Move) -> str:
 
     stops = leaves = allows = no_threat = 0
 
+    # --- Classify each reply vs the mate threat, then attach CALC counts ---
     for rep in replies:
         after_rep = after_board.clone()
         make_move(after_rep, rep, record_history=True)

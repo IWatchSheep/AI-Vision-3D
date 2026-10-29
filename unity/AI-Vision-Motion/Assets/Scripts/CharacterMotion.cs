@@ -1,3 +1,6 @@
+// Simple back-and-forth motion along X for demo scenes.
+// Attach to a character; tune leftX/rightX and timings in the Inspector.
+// Update() advances a repeating cycle: move right, pause, move left, pause.
 
 using UnityEngine;
 
@@ -13,15 +16,8 @@ public class CharacterMotion : MonoBehaviour
     // Time spent stopped at each end.
     [SerializeField] private float stopTime = 1f;
 
-    // Progress through the current movement.
-    private float elapsedTime = 0f;
-
-    // True: left to right.
-    // False: right to left.
-    private bool movingRight = true;
-
-    // True while resting at an endpoint.
-    private bool stopped = false;
+    // Time within the complete out-and-back cycle.
+    private double elapsedTime;
 
     private void Start()
     {
@@ -35,27 +31,23 @@ public class CharacterMotion : MonoBehaviour
 
     private void Update()
     {
+        Advance(Time.deltaTime);
+    }
+
+    private void Advance(float deltaTime)
+    {
         // Prevent invalid duration settings.
         float duration = Mathf.Max(0.01f, travelTime);
 
-        elapsedTime += Time.deltaTime;
-
-        if (stopped)
-        {
-            // Remain stopped for the specified time.
-            if (elapsedTime >= Mathf.Max(0f, stopTime))
-            {
-                elapsedTime = 0f;
-                stopped = false;
-                movingRight = !movingRight;
-            }
-
-            return;
-        }
+        double legTime = (double)duration + Mathf.Max(0f, stopTime);
+        // Keep leftover time across every transition, even after a long frame.
+        elapsedTime = (elapsedTime + deltaTime) % (2.0 * legTime);
+        bool movingRight = elapsedTime < legTime;
+        double legElapsed = movingRight ? elapsedTime : elapsedTime - legTime;
 
         // Calculate how far through the trip we are.
         float progress = Mathf.Clamp01(
-            elapsedTime / duration
+            (float)(legElapsed / duration)
         );
 
         // Smooth acceleration and deceleration.
@@ -79,12 +71,6 @@ public class CharacterMotion : MonoBehaviour
             transform.position.z
         );
 
-        // Finish the trip at the endpoint.
-        if (progress >= 1f)
-        {
-            stopped = true;
-            elapsedTime = 0f;
-        }
     }
 }
 

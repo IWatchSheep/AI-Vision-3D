@@ -12,9 +12,15 @@ The three applications supply their own facts. They share the calculator.
 
 ## What already exists
 
+Current runnable code: `python main.py` launches chess. The package launch
+`python -m chess_module.main` and direct `python chess_module/main.py` also work.
+`python show_strategies.py`, `python show_shapes.py`, and `python show_build.py`
+run the calculator demonstrations. The milestone checklist below is the
+original roadmap; see [AUDIT.md](AUDIT.md) for the current review and checks.
+
 - [x] [chess-c99](https://github.com/IWatchSheep/chess-c99) version 16 is archived. Leave it unchanged.
 - [x] [chess-python](https://github.com/IWatchSheep/chess-python) at commit `c5730c0` is archived. Leave it unchanged. It plays a full game, prints fact reports, and keeps the five-move `memory` window.
-- [x] This repository is the active project. `main.py` prints a short status message. `unity/AI-Vision-Motion` is a Unity 6 scene where one character slides from left to right and back.
+- [x] This repository is the active project. `main.py` launches chess. `unity/AI-Vision-Motion` is a Unity 6 scene where one character slides from left to right and back.
 - [ ] The shared calculator.
 - [ ] The 20 chess strategies.
 - [ ] The four lists.

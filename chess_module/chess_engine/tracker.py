@@ -1,4 +1,4 @@
-﻿"""Track each piece by a stable ID (1..32) across moves.
+"""Track each piece by a stable ID (1..32) across moves.
 
 The board only stores what piece type is on a square. The Tracker remembers
 *which* knight/pawn it was, so calc/replies reports can say LOST/GAINED per piece.
@@ -54,6 +54,7 @@ def follow_piece(
     piece = before.grid[row][col]
     mover = before.grid[move.sr][move.sc]
 
+    # Piece that moved (or promoted) follows the move destination.
     if row == move.sr and col == move.sc:
         after_row = move.er
         after_col = move.ec
@@ -64,6 +65,7 @@ def follow_piece(
             return after_row, after_col, after_type, FollowCase.FOLLOW_PROMOTED
         return after_row, after_col, piece.type, FollowCase.FOLLOW_MOVED
 
+    # Everyone else: capture, castling rook slide, or stay put.
     after_row, after_col, captured = resolve_piece_after_move(before, move, row, col)
     if captured:
         return -1, -1, piece.type, FollowCase.FOLLOW_CAPTURED
@@ -100,6 +102,7 @@ class Tracker:
         for r in range(BOARD_SIZE):
             for c in range(BOARD_SIZE):
                 p = board.grid[r][c]
+                # CALC_MAX_ID caps IDs — avoids overrun if the board is corrupted.
                 if p.is_empty or next_id >= CALC_MAX_ID:
                     continue
                 self.grid[r][c] = next_id
@@ -173,6 +176,7 @@ class Tracker:
         after_board = board.clone()
         make_move(after_board, move)
 
+        # 1. Where each ID lands; compare legal squares before vs after the move.
         after_grid, captured = self.ids_after_move(board, move)
         s0 = self.take_snapshot(board)
 
@@ -182,6 +186,7 @@ class Tracker:
         temp_tracker.color = list(self.color)
         s1 = temp_tracker.take_snapshot(after_board)
 
+        # 2. Update lost[][] — squares other pieces can no longer reach.
         for pid in range(1, CALC_MAX_ID):
             if captured[pid]:
                 self.lost[pid] = [False] * TOTAL_SQUARES
