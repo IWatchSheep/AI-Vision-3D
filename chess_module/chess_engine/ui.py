@@ -118,6 +118,8 @@ def display(board: Board, selected_row: int = -1, selected_col: int = -1) -> Non
 
 def list_piece_moves(position: Board, row: int, col: int) -> str:
     """Returns the legal destinations for a piece as a space-separated string."""
+    if not in_bounds(row, col):
+        return ""
     piece = position.grid[row][col]
     if piece.is_empty:
         return ""
@@ -139,6 +141,9 @@ def list_piece_moves(position: Board, row: int, col: int) -> str:
 def next_chunk(source: str, at: int, width: int = COMPARE_WIDTH) -> Tuple[str, int]:
     """Extracts the next word-wrapped chunk of text up to width characters."""
     length = len(source)
+    if width <= 0:
+        return "", length
+
     while at < length and source[at] == ' ':
         at += 1
 
@@ -225,13 +230,24 @@ def resolve_piece_after_move(
     moving_piece = before.grid[proposed.sr][proposed.sc]
     is_castling = (
         moving_piece.type == "K"
+        and proposed.sr == proposed.er
         and abs(proposed.ec - proposed.sc) == 2
         and row == proposed.sr
     )
     if is_castling:
-        if proposed.ec == CASTLE_KINGSIDE_KING_DEST_COL and col == ROOK_KINGSIDE_START_COL:
+        if (
+            proposed.ec == CASTLE_KINGSIDE_KING_DEST_COL
+            and col == ROOK_KINGSIDE_START_COL
+            and before.grid[row][col].type == "R"
+            and before.grid[row][col].color == moving_piece.color
+        ):
             after_col = CASTLE_KINGSIDE_ROOK_DEST_COL
-        if proposed.ec == CASTLE_QUEENSIDE_KING_DEST_COL and col == ROOK_QUEENSIDE_START_COL:
+        if (
+            proposed.ec == CASTLE_QUEENSIDE_KING_DEST_COL
+            and col == ROOK_QUEENSIDE_START_COL
+            and before.grid[row][col].type == "R"
+            and before.grid[row][col].color == moving_piece.color
+        ):
             after_col = CASTLE_QUEENSIDE_ROOK_DEST_COL
 
     return after_row, after_col, captured
@@ -246,6 +262,8 @@ def print_piece_changes(
     """Compares destinations before and after move, reporting GAINED, LOST, UNCHANGED."""
     if captured:
         print("    CHANGE: CAPTURED - this piece has no AFTER moves.")
+        return
+    if not (in_bounds(before_row, before_col) and in_bounds(after_row, after_col)):
         return
 
     side = before.grid[before_row][before_col].color

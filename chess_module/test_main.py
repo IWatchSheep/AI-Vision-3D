@@ -313,6 +313,51 @@ class TestMainCli(unittest.TestCase):
         out = self.buf.getvalue()
         self.assertIn("PAST 1 a7a8q White", out)
 
+    def test_claim_uses_preview_as_intended_move(self) -> None:
+        from chess_engine.move import parse_move_text
+        from chess_engine.movegen import make_move
+
+        s = GameSession()
+        moves = ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"]
+        for uci in moves:
+            make_move(s.board, parse_move_text(uci))
+            s.board.record_position()
+        s.tracker.init_from_board(s.board)
+
+        with contextlib.redirect_stdout(self.buf):
+            handle_square_entry(s, "f6")
+            handle_square_entry(s, "g8")
+            result = handle_game_control(s, "claim")
+        self.assertEqual(result, "quit")
+        self.assertIn("threefold repetition", self.buf.getvalue())
+
+    def test_unknown_four_letter_command_not_treated_as_direct_move(self) -> None:
+        s = GameSession()
+        with contextlib.redirect_stdout(self.buf):
+            res = process_command(s, "help")
+            self.assertIsNone(res)
+        self.buf = io.StringIO()
+        with contextlib.redirect_stdout(self.buf):
+            res = process_command(s, "test")
+            self.assertEqual(res, "unknown")
+        self.assertNotIn("Direct moves are disabled", self.buf.getvalue())
+
+    def test_claim_draw_commands(self) -> None:
+        s = GameSession()
+        with contextlib.redirect_stdout(self.buf):
+            res = process_command(s, "claim draw")
+            self.assertIsNone(res)
+        self.assertIn("No draw claim is currently available", self.buf.getvalue())
+
+    def test_cancel_alias_command(self) -> None:
+        s = GameSession()
+        with contextlib.redirect_stdout(self.buf):
+            handle_square_entry(s, "e2")
+            self.assertEqual(s.step, Step.PICK_DESTINATION)
+            res = process_command(s, "cancel")
+            self.assertIsNone(res)
+            self.assertEqual(s.step, Step.PICK_PIECE)
+
 
 if __name__ == "__main__":
     unittest.main()

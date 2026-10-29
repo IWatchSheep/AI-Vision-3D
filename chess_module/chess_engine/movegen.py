@@ -13,7 +13,7 @@ from .constants import (
     WHITE_PAWN_START_ROW, BLACK_PAWN_START_ROW,
     KING_START_COL, CASTLE_KINGSIDE_KING_DEST_COL, CASTLE_QUEENSIDE_KING_DEST_COL,
     CASTLE_KINGSIDE_ROOK_DEST_COL, CASTLE_QUEENSIDE_ROOK_DEST_COL,
-    MAX_SLIDE_STEPS,
+    MAX_SLIDE_STEPS, PROMOTION_PIECES,
     in_bounds, opposite, home_row_for, rook_col_for,
 )
 from .piece import Piece, empty_piece
@@ -55,6 +55,8 @@ def path_clear(board: 'Board', sr: int, sc: int, er: int, ec: int) -> bool:
     Only works for rook/bishop/queen rays (straight or diagonal).
     Caps steps so a bad step vector cannot loop forever.
     """
+    if not in_bounds(sr, sc) or not in_bounds(er, ec):
+        return False
     if sr == er and sc == ec:
         return False
 
@@ -85,6 +87,9 @@ def path_clear(board: 'Board', sr: int, sc: int, er: int, ec: int) -> bool:
 
 def piece_attacks(board: 'Board', sr: int, sc: int, tr: int, tc: int) -> bool:
     """Determines whether a piece on (sr, sc) attacks target square (tr, tc)."""
+    if not in_bounds(sr, sc) or not in_bounds(tr, tc):
+        return False
+
     p = board.grid[sr][sc]
     if p.is_empty:
         return False
@@ -112,6 +117,8 @@ def piece_attacks(board: 'Board', sr: int, sc: int, tr: int, tc: int) -> bool:
 
 def square_attacked(board: 'Board', r: int, c: int, by: Color) -> bool:
     """Determines whether square (r, c) is attacked by any piece of color `by`."""
+    if not in_bounds(r, c):
+        return False
     for check_r in range(BOARD_SIZE):
         for check_c in range(BOARD_SIZE):
             attacker = board.grid[check_r][check_c]
@@ -123,6 +130,8 @@ def square_attacked(board: 'Board', r: int, c: int, by: Color) -> bool:
 
 def count_attackers(board: 'Board', r: int, c: int, by: Color) -> int:
     """Counts how many pieces of color `by` attack square (r, c)."""
+    if not in_bounds(r, c):
+        return 0
     attackers = 0
     for cr in range(BOARD_SIZE):
         for cc in range(BOARD_SIZE):
@@ -156,6 +165,8 @@ def is_in_check(board: 'Board', side: Color) -> bool:
 
 def can_castle(board: 'Board', move: Move, side: Color) -> bool:
     """Validates whether the proposed castling move satisfies all chess rules."""
+    if side not in (WHITE, BLACK):
+        return False
     home_row = home_row_for(side)
     king_moved = board.white_king_moved if side == WHITE else board.black_king_moved
     enemy = opposite(side)
@@ -182,6 +193,9 @@ def can_castle(board: 'Board', move: Move, side: Color) -> bool:
     )
 
     corner_piece = board.grid[home_row][rook_col]
+    king = board.grid[home_row][KING_START_COL]
+    if king.type != 'K' or king.color != side or is_in_check(board, side):
+        return False
     if rook_moved or corner_piece.type != 'R' or corner_piece.color != side:
         return False
 
@@ -205,6 +219,10 @@ def move_is_en_passant(board: 'Board', move: Move, piece: Piece) -> bool:
     if not in_bounds(move.sr, move.sc) or not in_bounds(move.er, move.ec):
         return False
     if not in_bounds(move.sr, move.ec):
+        return False
+    if (move.er - move.sr != pawn_direction(piece.color)
+            or abs(move.ec - move.sc) != 1
+            or move.sr != (3 if piece.color == WHITE else 4)):
         return False
     matches_ep = move.er == board.ep_row and move.ec == board.ep_col
     dest_empty = board.grid[move.er][move.ec].is_empty
@@ -243,10 +261,7 @@ def pawn_move_is_pseudo_legal(board: 'Board', move: Move, pawn: Piece, target: P
     # En passant
     if not in_bounds(move.sr, move.ec):
         return False
-    lands_on_ep = move.er == board.ep_row and move.ec == board.ep_col
-    side_pawn = board.grid[move.sr][move.ec]
-    enemy_pawn_present = side_pawn.type == "P" and side_pawn.color == opposite(pawn.color)
-    return lands_on_ep and enemy_pawn_present
+    return move_is_en_passant(board, move, pawn)
 
 
 def king_move_is_pseudo_legal(board: 'Board', move: Move) -> bool:
@@ -265,13 +280,23 @@ def king_move_is_pseudo_legal(board: 'Board', move: Move) -> bool:
 
 
 def promotion_is_valid(move: Move, piece: Piece) -> bool:
-    """Checks that pawn promotion specifies a valid piece when reaching the end rank."""
-    if not move.promotion or move.promotion == '\0':
-        return True
-    is_pawn = (piece.type == 'P')
-    reached_end = (move.er == 0 or move.er == 7)
-    valid_char = move.promotion in ("Q", "R", "B", "N")
-    return is_pawn and reached_end and valid_char
+    """
+    Promotion rules for a candidate move.
+
+    A pawn that reaches the last rank must name Q, R, B, or N (FIDE: the
+    choice is part of the move). Other pieces must not carry a promotion
+    letter. Pawns that are not on the last rank also must not.
+    """
+    if not isinstance(move.promotion, str):
+        return False
+    has_promo = bool(move.promotion) and move.promotion != "\0"
+    reached_end = move.er in (0, 7)
+
+    if piece.type == "P" and reached_end:
+        return move.promotion in PROMOTION_PIECES
+
+    # Not a promoting pawn: any promotion letter is illegal.
+    return not has_promo
 
 
 def pseudo_legal(board: 'Board', m: Move) -> bool:
@@ -303,46 +328,84 @@ def apply_move_to_board(board: 'Board', move: Move) -> None:
     """Update only the piece grid for this move (EP, castle rook, promote).
 
     Does not change turn, clocks, or castling flags — make_move does that.
+    Empty start squares are ignored so a bad call cannot wipe the destination.
+    A two-square king move without a friendly rook in the corner is refused
+    entirely (no king teleport without the rook).
     """
     if not in_bounds(move.sr, move.sc) or not in_bounds(move.er, move.ec):
         return
 
     piece = board.grid[move.sr][move.sc]
+    if piece.is_empty:
+        return
+
+    target = board.grid[move.er][move.ec]
+    # Refuse own-piece overwrite / king capture (defensive; legal_move already blocks these).
+    if target.color == piece.color or target.type == "K":
+        return
 
     # En passant: remove the pawn that was jumped past.
     if move_is_en_passant(board, move, piece):
         if in_bounds(move.sr, move.ec):
             board.grid[move.sr][move.ec] = empty_piece()
 
-    # Castling: also slide the rook.
-    if piece.type == "K" and abs(move.ec - move.sc) == 2:
+    # Castling: slide the rook with the king. If the corner rook is missing,
+    # refuse the whole move so the king cannot jump alone.
+    if piece.type == "K" and move.sr == move.er and abs(move.ec - move.sc) == 2:
         king_side = move.ec > move.sc
         rook_from_col = rook_col_for(king_side)
         rook_to_col = (
             CASTLE_KINGSIDE_ROOK_DEST_COL if king_side else CASTLE_QUEENSIDE_ROOK_DEST_COL
         )
-        board.grid[move.sr][rook_to_col] = board.grid[move.sr][rook_from_col]
+        rook = board.grid[move.sr][rook_from_col]
+        if rook.type != "R" or rook.color != piece.color:
+            return
+        board.grid[move.sr][rook_to_col] = rook
         board.grid[move.sr][rook_from_col] = empty_piece()
 
     board.grid[move.sr][move.sc] = empty_piece()
     board.grid[move.er][move.ec] = piece
 
-    # Pawn on last rank becomes the chosen piece (default Queen).
+    # Pawn on last rank becomes the chosen piece. Only Q/R/B/N are allowed;
+    # anything else (including a missing letter) falls back to Queen so a
+    # bad caller cannot write an illegal piece letter onto the board.
     if piece.type == "P" and move.er in (0, 7):
         promo_type = (
-            "Q" if (not move.promotion or move.promotion == "\0") else move.promotion
+            move.promotion if move.promotion in PROMOTION_PIECES else "Q"
         )
         board.grid[move.er][move.ec] = Piece(type=promo_type, color=piece.color)
 
 
 def legal_move(board: 'Board', move: Move) -> bool:
     """Determines whether a move is fully legal in chess."""
+    if not isinstance(move, Move):
+        return False
     if not pseudo_legal(board, move):
         return False
 
     after_move = board.clone()
     apply_move_to_board(after_move, move)
     return not is_in_check(after_move, board.turn)
+
+
+def destination_is_legal(
+    board: 'Board', sr: int, sc: int, er: int, ec: int
+) -> bool:
+    """
+    True if some fully-specified legal move goes from (sr, sc) to (er, ec).
+
+    For a pawn stepping onto the last rank, any of Q/R/B/N counts — the
+    player still must pick the letter before the move is finalized.
+    """
+    if not in_bounds(sr, sc) or not in_bounds(er, ec):
+        return False
+    piece = board.grid[sr][sc]
+    if piece.type == "P" and er in (0, 7):
+        for promo in PROMOTION_PIECES:
+            if legal_move(board, Move(sr=sr, sc=sc, er=er, ec=ec, promotion=promo)):
+                return True
+        return False
+    return legal_move(board, Move(sr=sr, sc=sc, er=er, ec=ec))
 
 
 def mark_rook_at_home_square(board: 'Board', row: int, col: int, side: Color) -> None:
@@ -365,7 +428,7 @@ def mark_rook_at_home_square(board: 'Board', row: int, col: int, side: Color) ->
 
 def update_castle_state(board: 'Board', piece: Piece, m: Move) -> None:
     """Updates the board's castling flags when a king or rook moves."""
-    if piece.type == 'K' and abs(m.ec - m.sc) == 2:
+    if piece.type == 'K' and m.sr == m.er and abs(m.ec - m.sc) == 2:
         is_ks = m.is_kingside_castle
         if piece.color == WHITE:
             if is_ks: board.white_rook_h_moved = True
@@ -384,17 +447,33 @@ def update_castle_state(board: 'Board', piece: Piece, m: Move) -> None:
         mark_rook_at_home_square(board, m.sr, m.sc, piece.color)
 
 
-def make_move(board: 'Board', m: Move) -> None:
+def make_move(board: 'Board', m: Move, *, record_history: bool = False) -> None:
     """Play move on the board: pieces, castling rights, EP, clocks, turn.
 
-    Caller must already know the move is legal. Does not append to history;
-    the CLI calls board.record_position() after a finalized move.
+    Illegal moves are ignored without changing any game state. Promotion
+    requires an explicit Q/R/B/N, just as it does in legal_move.
+    Set record_history for simulations that need repetition adjudication.
+    The CLI records finalized moves separately.
     """
-    if not in_bounds(m.sr, m.sc) or not in_bounds(m.er, m.ec):
+    if not legal_move(board, m):
         return
 
     piece = board.grid[m.sr][m.sc]
+    if piece.is_empty or piece.color != board.turn:
+        return
+
     target = board.grid[m.er][m.ec]
+    # Never capture own pieces or overwrite a king (guards buggy callers).
+    if target.color == piece.color or target.type == "K":
+        return
+
+    # Castling-shaped king move: require the corner rook before touching flags
+    # or the grid (otherwise a bad caller could teleport the king alone).
+    if piece.type == "K" and m.sr == m.er and abs(m.ec - m.sc) == 2:
+        rook = board.grid[m.sr][rook_col_for(m.ec > m.sc)]
+        if rook.type != "R" or rook.color != piece.color:
+            return
+
     pawn_move = piece.type == "P"
     capture = (not target.is_empty) or move_is_en_passant(board, m, piece)
 
@@ -424,22 +503,29 @@ def make_move(board: 'Board', m: Move) -> None:
         board.fullmove_number += 1
 
     board.turn = opposite(board.turn)
+    if record_history:
+        board.record_position()
 
 
 def consider_move(board: 'Board', moves: List[Move], sr: int, sc: int, er: int, ec: int) -> None:
-    """Considers candidate move from (sr, sc) to (er, ec) and appends if legal."""
+    """Considers candidate move from (sr, sc) to (er, ec) and appends if legal.
+
+    Promoting pawns must name Q/R/B/N; check each letter separately because a
+    bare move without a promotion letter is never legal on the last rank.
+    """
     if not in_bounds(er, ec):
         return
 
-    m = Move(sr=sr, sc=sc, er=er, ec=ec)
-    if not legal_move(board, m):
+    # Last-rank pawn: letter is part of the move — try each promotion.
+    if board.grid[sr][sc].type == "P" and er in (0, 7):
+        for promo in ("Q", "R", "B", "N"):
+            m = Move(sr=sr, sc=sc, er=er, ec=ec, promotion=promo)
+            if legal_move(board, m):
+                moves.append(m)
         return
 
-    # Check for pawn promotion
-    if board.grid[sr][sc].type == 'P' and (er == 0 or er == 7):
-        for promo in ("Q", "R", "B", "N"):
-            moves.append(Move(sr=sr, sc=sc, er=er, ec=ec, promotion=promo))
-    else:
+    m = Move(sr=sr, sc=sc, er=er, ec=ec)
+    if legal_move(board, m):
         moves.append(m)
 
 
@@ -524,7 +610,11 @@ def sorted_moves(board: 'Board') -> List[Move]:
 def legal_destination_map(board: 'Board', row: int, col: int, side_to_move: Color) -> List[List[bool]]:
     """Returns an 8x8 boolean matrix where [r][c] is True if piece can legally move to (r, c)."""
     destinations = [[False] * BOARD_SIZE for _ in range(BOARD_SIZE)]
-    if not in_bounds(row, col) or board.grid[row][col].is_empty:
+    if (
+        not in_bounds(row, col)
+        or board.grid[row][col].is_empty
+        or board.grid[row][col].color != side_to_move
+    ):
         return destinations
 
     view = board.clone()

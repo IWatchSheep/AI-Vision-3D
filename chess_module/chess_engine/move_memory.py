@@ -18,7 +18,7 @@ from typing import List, Optional, Sequence, Tuple
 from .board import Board
 from .constants import BOARD_SIZE, WHITE, BLACK, color_name, row_col_text
 from .move import Move
-from .movegen import make_move, legal_destination_map
+from .movegen import make_move, legal_destination_map, legal_move
 from .ui import resolve_piece_after_move
 
 MAX_PAST_MOVES = 4
@@ -63,11 +63,9 @@ def _other_piece_destination_changes(
                 after_row, after_col, captured = resolve_piece_after_move(
                     before, move, row, col
                 )
-                if captured:
-                    continue
-
                 old_map = legal_destination_map(before, row, col, side)
-                new_map = legal_destination_map(after, after_row, after_col, side)
+                new_map = ([[False] * BOARD_SIZE for _ in range(BOARD_SIZE)]
+                           if captured else legal_destination_map(after, after_row, after_col, side))
 
                 for r in range(BOARD_SIZE):
                     for c in range(BOARD_SIZE):
@@ -110,6 +108,8 @@ class MoveMemoryEntry:
 
 def build_entry(board: Board, move: Move) -> MoveMemoryEntry:
     """Clone the board, play the move on the copy, collect facts. Live board unchanged."""
+    if not legal_move(board, move):
+        raise ValueError("Cannot remember an illegal move")
     fen_before = board.to_fen()
     after = board.clone()
     make_move(after, move)
@@ -162,8 +162,11 @@ class MoveMemory:
         """On F: store the preview as a past move; drop the oldest if we exceed 4."""
         if self.current is None:
             return
+        if not isinstance(self.past, list):
+            self.past = []
         self.past.append(self.current)
         self.current = None
+        # Cap past so a corrupted past list cannot grow without bound.
         while len(self.past) > MAX_PAST_MOVES:
             self.past.pop(0)
 

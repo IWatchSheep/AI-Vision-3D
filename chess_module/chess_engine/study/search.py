@@ -1,7 +1,7 @@
 """Stage 3C: game tree search (LOOP and TRACE reports)."""
 
 from typing import List, Tuple
-from ..constants import BOARD_SIZE, WHITE, BLACK, color_name
+from ..constants import BOARD_SIZE, WHITE, BLACK, color_name, HISTORY_MAX_LEN, LOOP_MAX_DEPTH
 from ..move import Move, parse_move_text
 from ..board import Board
 from ..movegen import generate_moves, sorted_moves, legal_move, make_move, is_in_check
@@ -22,22 +22,25 @@ def zero_move_pieces(board: Board, moves: List[Move]) -> int:
 
 def mate_forced(board: Board, n: int) -> bool:
     """Minimax search checking if side to move can force checkmate in n plies."""
-    if n < 1:
+    if n < 1 or board.automatic_draw()[0]:
         return False
 
     moves = generate_moves(board)
     for m in moves:
         next_b = board.clone()
-        make_move(next_b, m)
+        make_move(next_b, m, record_history=True)
         replies = generate_moves(next_b)
         if len(replies) == 0:
             if is_in_check(next_b, next_b.turn):
                 return True
-        elif n >= 3:
+        elif n >= 3 and not next_b.automatic_draw()[0] and not next_b.claimable_draw()[0]:
             all_forced = True
             for rep in replies:
+                if next_b.claimable_draw(rep)[0]:
+                    all_forced = False
+                    break
                 after_rep = next_b.clone()
-                make_move(after_rep, rep)
+                make_move(after_rep, rep, record_history=True)
                 if not mate_forced(after_rep, n - 2):
                     all_forced = False
                     break
@@ -51,11 +54,15 @@ def first_move_forces(after_board: Board, n: int) -> bool:
     replies = generate_moves(after_board)
     if not replies:
         return is_in_check(after_board, after_board.turn)
+    if after_board.automatic_draw()[0] or after_board.claimable_draw()[0]:
+        return False
     if n < 3:
         return False
     for rep in replies:
+        if after_board.claimable_draw(rep)[0]:
+            return False
         after_rep = after_board.clone()
-        make_move(after_rep, rep)
+        make_move(after_rep, rep, record_history=True)
         if not mate_forced(after_rep, n - 2):
             return False
     return True
@@ -65,6 +72,8 @@ def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
     """Exhaustive game tree search up to `depth` plies."""
     lines: List[str] = []
     mover = board.turn
+    if not isinstance(depth, int) or isinstance(depth, bool) or depth > LOOP_MAX_DEPTH:
+        raise ValueError(f"depth must be an integer no greater than {LOOP_MAX_DEPTH}")
 
     # Guard depth so positions[ply] / current_line[ply] cannot underflow.
     if depth < 1:
@@ -82,6 +91,11 @@ def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
     if not first:
         lines.append(f"NO MOVES {'checkmate' if is_in_check(board, mover) else 'stalemate'}")
         lines.append("LOOP END\n")
+        return "\n".join(lines)
+
+    drawn, reason = board.automatic_draw()
+    if drawn:
+        lines.extend([f"DRAW {reason}", "LOOP END\n"])
         return "\n".join(lines)
 
     positions = [0] * (depth + 1)
@@ -110,10 +124,12 @@ def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
                 lines.append(f"MATE {ply} {path_str} MATED {color_name(b.turn)}")
             else:
                 stalemates[ply] += 1
+        elif b.automatic_draw()[0]:
+            lines.append(f"DRAW {ply} {b.automatic_draw()[1]}")
         elif ply < depth:
             for m in moves:
                 next_b = b.clone()
-                make_move(next_b, m)
+                make_move(next_b, m, record_history=True)
                 current_line[ply] = m
                 if ply == 1:
                     reply_reaches_mate[0] = False
@@ -123,7 +139,7 @@ def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
 
     for idx, m in enumerate(first):
         next_b = board.clone()
-        make_move(next_b, m)
+        make_move(next_b, m, record_history=True)
         current_line[0] = m
         loop_walk(next_b, 1, idx)
 
@@ -137,7 +153,7 @@ def loop_report(board: Board, depth: int, zero_k: int = 0) -> str:
     any_possible = False
     for idx, m in enumerate(first):
         next_b = board.clone()
-        make_move(next_b, m)
+        make_move(next_b, m, record_history=True)
         replies = generate_moves(next_b)
         prefix = f"FIRST {m.uci} "
         if first_move_forces(next_b, depth):
@@ -163,16 +179,17 @@ def trace_report(
 ) -> Tuple[bool, str, int]:
     """Replays a series of moves and prints CALC reports."""
     tokens = moves_text.strip().split()
-    if not tokens:
+    if not tokens or len(tokens) > HISTORY_MAX_LEN:
         return False, "", 1
 
     sim_b = board.clone()
     parsed_moves = []
     for idx, tok in enumerate(tokens):
         m = parse_move_text(tok)
-        if not m or not legal_move(sim_b, m):
+        if (not m or not legal_move(sim_b, m)
+                or not generate_moves(sim_b) or sim_b.automatic_draw()[0]):
             return False, "", idx + 1
-        make_move(sim_b, m)
+        make_move(sim_b, m, record_history=True)
         parsed_moves.append(m)
 
     lines: List[str] = [f"TRACE BEGIN {len(parsed_moves)}"]
@@ -183,7 +200,7 @@ def trace_report(
         lines.append(f"TRACE PLY {idx + 1} {m.uci}")
         lines.append(calc_report(cur_b, cur_t, m).rstrip())
         cur_t.commit(cur_b, m)
-        make_move(cur_b, m)
+        make_move(cur_b, m, record_history=True)
 
     lines.append("TRACE END\n")
     return True, "\n".join(lines), 0

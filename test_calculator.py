@@ -1,4 +1,7 @@
-"""Tests for the chess strategy calculator dolls and fill."""
+"""Tests for the chess strategy calculator dolls and fill.
+
+These 10 checks must keep passing when the dolls and fill logic are edited.
+"""
 
 from __future__ import annotations
 
@@ -7,16 +10,18 @@ import pathlib
 import unittest
 from contextlib import redirect_stdout
 
-from calculator.pattern import compare, print_fill
+from calculator.pattern import FILL_MARKS, PatternWindow, compare, print_chess_fill, print_fill
 from calculator.strategies import (
+    BOARD_SIZE,
+    PIECE_CHARS,
     STRATEGIES,
     board_to_fen_pieces,
     fen_piece_field,
     get_strategy,
     print_joints,
 )
-
-PIECE_CHARS = set("KQRBNPkqrbnp.")
+from calculator.strategies_data import RAW_DOLLS
+from calculator.window import DEFAULT_PAST_LIMIT, MemoryWindow
 
 
 class TestStrategies(unittest.TestCase):
@@ -31,9 +36,9 @@ class TestStrategies(unittest.TestCase):
 
     def test_every_board_shape_and_chars(self) -> None:
         for s in STRATEGIES:
-            self.assertEqual(len(s.board), 8, msg=s.id)
+            self.assertEqual(len(s.board), BOARD_SIZE, msg=s.id)
             for row in s.board:
-                self.assertEqual(len(row), 8, msg=s.id)
+                self.assertEqual(len(row), BOARD_SIZE, msg=s.id)
                 self.assertTrue(set(row) <= PIECE_CHARS, msg=f"{s.id}: {row}")
 
     def test_both_kings_on_every_board(self) -> None:
@@ -98,6 +103,107 @@ class TestNoForbiddenMentions(unittest.TestCase):
             self.assertNotIn("camera", text, msg=name)
             self.assertNotIn("chess_module", text, msg=name)
             self.assertNotIn("import chess", text, msg=name)
+
+
+class TestFillInvariants(unittest.TestCase):
+    """Additive checks: marks, counts, and score stay consistent."""
+
+    def test_fill_marks_counts_and_score(self) -> None:
+        starting = get_strategy("starting-array")
+        for doll in STRATEGIES:
+            result = compare(doll, starting.board)
+            flat = "".join(result.fill)
+            self.assertTrue(set(flat) <= FILL_MARKS, msg=doll.id)
+            self.assertEqual(result.hash_count, flat.count("#"), msg=doll.id)
+            self.assertEqual(result.plus_count, flat.count("+"), msg=doll.id)
+            self.assertEqual(result.x_count, flat.count("X"), msg=doll.id)
+            self.assertEqual(
+                result.score,
+                result.hash_count - result.x_count,
+                msg=doll.id,
+            )
+
+    def test_compare_does_not_mutate_inputs(self) -> None:
+        doll = get_strategy("starting-array")
+        seen = list(doll.board)
+        before_doll = list(doll.board)
+        before_seen = list(seen)
+        compare(doll, seen)
+        self.assertEqual(doll.board, before_doll)
+        self.assertEqual(seen, before_seen)
+
+    def test_print_chess_fill_alias_matches_print_fill(self) -> None:
+        develop = get_strategy("develop-to-the-center")
+        result = compare(develop, develop.board)
+        buf_a = io.StringIO()
+        buf_b = io.StringIO()
+        with redirect_stdout(buf_a):
+            print_fill(result)
+        with redirect_stdout(buf_b):
+            print_chess_fill(result)
+        self.assertEqual(buf_a.getvalue(), buf_b.getvalue())
+
+    def test_strategy_copy_is_independent(self) -> None:
+        original = get_strategy("starting-array")
+        copied = original.copy()
+        copied.board[0] = "X" * BOARD_SIZE
+        self.assertNotEqual(original.board[0], copied.board[0])
+
+    def test_raw_dolls_match_loaded_strategies(self) -> None:
+        self.assertEqual(len(RAW_DOLLS), len(STRATEGIES))
+        for raw, loaded in zip(RAW_DOLLS, STRATEGIES):
+            self.assertEqual(raw["id"], loaded.id)
+            self.assertEqual(raw["number"], loaded.number)
+
+    def test_pattern_window_uses_shared_limit(self) -> None:
+        window = PatternWindow()
+        memory = MemoryWindow(limit=DEFAULT_PAST_LIMIT)
+        for i in range(DEFAULT_PAST_LIMIT + 1):
+            doll = STRATEGIES[i]
+            result = compare(doll, doll.board)
+            window.set_current(result)
+            window.accept()
+            memory.set_current(result)
+            memory.accept()
+        self.assertEqual(len(window.past), DEFAULT_PAST_LIMIT)
+        self.assertEqual(len(memory.past), DEFAULT_PAST_LIMIT)
+
+    def test_compare_result_does_not_alias_live_doll(self) -> None:
+        # Mutating result.strategy must not change the doll on record.
+        doll = get_strategy("starting-array")
+        before = list(doll.board)
+        result = compare(doll, doll.board)
+        result.strategy.board[0] = "X" * BOARD_SIZE
+        self.assertEqual(doll.board, before)
+        self.assertEqual(get_strategy("starting-array").board, before)
+
+    def test_memory_window_rejects_bad_limits(self) -> None:
+        with self.assertRaises(ValueError):
+            MemoryWindow(limit=0)
+        with self.assertRaises(ValueError):
+            MemoryWindow(limit=-1)
+        with self.assertRaises(ValueError):
+            MemoryWindow(limit=True)
+
+    def test_memory_window_trim_on_replace_past(self) -> None:
+        memory = MemoryWindow(limit=2)
+        memory.replace_past(["a", "b", "c", "d"])
+        self.assertEqual(memory.past, ["c", "d"])
+
+    def test_memory_window_does_not_mutate_or_alias_supplied_history(self) -> None:
+        history = ["a", "b", "c"]
+        memory = MemoryWindow(limit=2, past=history)
+        self.assertEqual(history, ["a", "b", "c"])
+        history.append("d")
+        self.assertEqual(memory.past, ["b", "c"])
+
+    def test_invalid_changed_limit_preserves_pending_item(self) -> None:
+        memory = MemoryWindow(limit=2, past=["a"], current="b")
+        memory.limit = -1
+        with self.assertRaises(ValueError):
+            memory.accept()
+        self.assertEqual(memory.current, "b")
+        self.assertEqual(memory.past, ["a"])
 
 
 if __name__ == "__main__":

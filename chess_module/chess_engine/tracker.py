@@ -8,12 +8,12 @@ from enum import Enum
 from typing import Dict, List, Optional, Tuple
 from .constants import (
     BOARD_SIZE, TOTAL_SQUARES, CALC_MAX_ID,
-    Color, EMPTY, WHITE, BLACK,
+    Color, EMPTY, WHITE, BLACK, PROMOTION_PIECES,
     square_index, square_text
 )
 from .board import Board
 from .move import Move
-from .movegen import legal_destination_map, make_move
+from .movegen import legal_destination_map, make_move, legal_move
 from .ui import resolve_piece_after_move
 
 
@@ -57,8 +57,10 @@ def follow_piece(
     if row == move.sr and col == move.sc:
         after_row = move.er
         after_col = move.ec
-        if mover.type == 'P' and (move.er == 0 or move.er == 7):
-            after_type = 'Q' if (not move.promotion or move.promotion == '\0') else move.promotion
+        if mover.type == "P" and move.er in (0, 7):
+            after_type = (
+                move.promotion if move.promotion in PROMOTION_PIECES else "Q"
+            )
             return after_row, after_col, after_type, FollowCase.FOLLOW_PROMOTED
         return after_row, after_col, piece.type, FollowCase.FOLLOW_MOVED
 
@@ -125,6 +127,8 @@ class Tracker:
                     continue
 
                 side = board.grid[r][c].color
+                if side not in (WHITE, BLACK):
+                    continue
                 destinations = legal_destination_map(board, r, c, side)
 
                 snap.present[pid] = True
@@ -164,6 +168,8 @@ class Tracker:
 
     def commit(self, board: Board, move: Move) -> None:
         """Commits move into tracker, updating lost squares."""
+        if not legal_move(board, move):
+            raise ValueError("Cannot track an illegal move")
         after_board = board.clone()
         make_move(after_board, move)
 
@@ -173,6 +179,7 @@ class Tracker:
         # Build temporary tracker for s1 snapshot
         temp_tracker = Tracker()
         temp_tracker.grid = after_grid
+        temp_tracker.color = list(self.color)
         s1 = temp_tracker.take_snapshot(after_board)
 
         for pid in range(1, CALC_MAX_ID):
@@ -197,5 +204,5 @@ def position_after(
     after_board = board.clone()
     after_tracker = tracker.clone()
     after_tracker.commit(board, move)
-    make_move(after_board, move)
+    make_move(after_board, move, record_history=True)
     return after_board, after_tracker

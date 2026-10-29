@@ -19,8 +19,10 @@ Widen the console to about 140 columns for the before/after report.
 Run the tests with:
 
 ```sh
-python3 -m unittest test_engine.py test_main.py
+python3 -m unittest discover -s . -p 'test_*.py'
 ```
+
+See [AUDIT.md](AUDIT.md) for verified rule fixes, regression coverage, and review limits.
 
 ## How to move
 

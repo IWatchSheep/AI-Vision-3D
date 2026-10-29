@@ -12,7 +12,7 @@ Type help for a command list.
 from chess_engine.constants import WHITE, BLACK, CYAN, RESET
 from chess_engine.movegen import is_in_check, has_king, game_over
 from chess_engine.ui import display, print_selection_near_prompt, enable_windows_colors
-from chess_engine.cli_session import GameSession, err
+from chess_engine.cli_session import GameSession, err, sanitize_display_text
 from chess_engine.cli_commands import (
     print_instructions,
     build_prompt,
@@ -67,7 +67,8 @@ def main() -> None:
             result = process_command(session, line)
         except Exception as exc:
             # process_command already catches most errors; keep the loop alive.
-            err(f"Unexpected error: {exc}")
+            # Sanitize so exception text cannot inject terminal control codes.
+            err(f"Unexpected error: {sanitize_display_text(str(exc), 120)}")
             continue
 
         if result == "quit":

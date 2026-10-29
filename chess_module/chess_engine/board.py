@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 
 from .constants import (
     BOARD_SIZE, Color, EMPTY, WHITE, BLACK,
-    HISTORY_MAX_LEN, FEN_NUMBER_MAX_DIGITS,
+    HISTORY_MAX_LEN, FEN_NUMBER_MAX_DIGITS, FEN_TEXT_MAX,
     in_bounds, opposite, parse_square, parse_nonneg_int,
 )
 from .piece import Piece, empty_piece
@@ -100,7 +100,7 @@ class Board:
             del self.history[:overflow]
 
     def position_key(self) -> str:
-        """Computes a standardized 72-character key representing the position."""
+        """Position identity, including EP only when a pawn can legally capture."""
         # Avoid circular import by importing legal_move locally
         from .movegen import legal_move
         from .move import Move
@@ -128,6 +128,9 @@ class Board:
             for delta_col in (-1, 1):
                 sc = self.ep_col + delta_col
                 if in_bounds(starting_row, sc):
+                    pawn = self.grid[starting_row][sc]
+                    if pawn.type != 'P' or pawn.color != self.turn:
+                        continue
                     candidate = Move(sr=starting_row, sc=sc, er=self.ep_row, ec=self.ep_col)
                     if legal_move(self, candidate):
                         legal_ep = True
@@ -182,27 +185,66 @@ class Board:
 
     def automatic_draw(self) -> Tuple[bool, Optional[str]]:
         """Checks mandatory draw conditions: 75-move rule, 5-fold repetition, dead position."""
+        from .movegen import is_in_check, generate_moves
+
+        reason = None
         if self.halfmove_clock >= 150:
-            return True, "75-move rule"
-        if self.repetition_count() >= 5:
-            return True, "fivefold repetition"
-        if self.dead_position():
-            return True, "dead position"
+            reason = "75-move rule"
+        elif self.repetition_count() >= 5:
+            reason = "fivefold repetition"
+        elif self.dead_position():
+            reason = "dead position"
+        if reason:
+            if is_in_check(self, self.turn) and not generate_moves(self):
+                return False, None
+            return True, reason
         return False, None
+
+    def insufficient_mating_material(self, side: Color) -> bool:
+        """Proves common material cases where this side cannot possibly mate.
+
+        This is conservative: it does not solve arbitrary blocked positions.
+        Opponent pieces can help form a mating net, so a lone minor is not
+        automatically insufficient against an opponent with other material.
+        """
+        own = [p for row in self.grid for p in row if p.color == side]
+        all_pieces = [p for row in self.grid for p in row if not p.is_empty]
+        if any(p.type in ('P', 'R', 'Q') for p in own):
+            return False
+        if any(p.type == 'N' for p in own):
+            return (len(own) <= 2 and not any(
+                p.color != side and p.type not in ('K', 'Q') for p in all_pieces
+            ))
+        if any(p.type == 'B' for p in own):
+            shades = {(r + c) % 2 for r in range(BOARD_SIZE) for c in range(BOARD_SIZE)
+                      if self.grid[r][c].type == 'B'}
+            return len(shades) == 1 and not any(p.type in ('P', 'N') for p in all_pieces)
+        return True
 
     def claimable_draw(self, intended_move: Optional['Move'] = None) -> Tuple[bool, Optional[str]]:
         """Checks whether a player can claim a draw (50-move rule or 3-fold repetition)."""
-        from .movegen import legal_move, make_move
-        from .move import Move
+        from .movegen import legal_move, make_move, game_over, generate_moves
+
+        # A finished game cannot be replaced by a draw claim. In particular,
+        # checkmate takes precedence over a clock reaching 100 or 150.
+        if game_over(self)[0]:
+            return False, None
+
+        if self.halfmove_clock >= 100:
+            return True, "50-move rule"
+        if self.repetition_count() >= 3:
+            return True, "threefold repetition"
 
         pos = self
-        has_intended = (intended_move is not None and intended_move.sr >= 0)
+        has_intended = intended_move is not None
         if has_intended:
             if not legal_move(self, intended_move):
                 return False, None
             after_move = self.clone()
             make_move(after_move, intended_move)
             pos = after_move
+            if not generate_moves(pos):
+                return False, None
 
         if pos.halfmove_clock >= 100:
             return True, "50-move rule"
@@ -270,6 +312,11 @@ class Board:
 
         if not fen:
             return False, "FEN text is missing"
+        if not isinstance(fen, str):
+            return False, "FEN text is missing"
+        # Reject oversized input before any heavy parsing (DoS guard).
+        if len(fen) > FEN_TEXT_MAX:
+            return False, "FEN text is too long"
 
         fields = fen.strip().split()
         if len(fields) not in (4, 6):
@@ -284,15 +331,22 @@ class Board:
 
         for r, rank_str in enumerate(ranks):
             col = 0
+            previous_digit = False
             for ch in rank_str:
-                if ch.isdigit():
+                # Require ASCII '1'..'8' only — Python's str.isdigit() also
+                # accepts Unicode decimal digits, which are not valid FEN.
+                if ch.isascii() and ch.isdigit():
+                    if previous_digit:
+                        return False, "consecutive empty-square digits in a rank"
+                    previous_digit = True
                     digit = int(ch)
                     if digit < 1 or digit > 8:
                         return False, "a rank does not have exactly 8 squares"
                     col += digit
                     if col > 8:
                         return False, "a rank does not have exactly 8 squares"
-                else:
+                elif ch.isascii() and ch.isalpha():
+                    previous_digit = False
                     upper = ch.upper()
                     if upper not in "PNBRQK":
                         return False, "unknown piece letter"
@@ -301,6 +355,8 @@ class Board:
                     piece_color = WHITE if ch.isupper() else BLACK
                     new_b.grid[r][col] = Piece(type=upper, color=piece_color)
                     col += 1
+                else:
+                    return False, "unknown piece letter"
             if col != 8:
                 return False, "a rank does not have exactly 8 squares"
 
@@ -312,12 +368,15 @@ class Board:
         # Validate piece material counts
         for side in (WHITE, BLACK):
             counts = {p: 0 for p in "PNBRQK"}
+            bishop_shades = [0, 0]
             total = 0
             for r in range(BOARD_SIZE):
                 for c in range(BOARD_SIZE):
                     p = new_b.grid[r][c]
                     if p.color == side:
                         counts[p.type] += 1
+                        if p.type == 'B':
+                            bishop_shades[(r + c) % 2] += 1
                         total += 1
                         if p.type == 'P' and (r == 0 or r == 7):
                             return False, "a pawn is on the first or last rank"
@@ -328,7 +387,7 @@ class Board:
             promoted = (
                 max(0, counts['Q'] - 1) +
                 max(0, counts['R'] - 2) +
-                max(0, counts['B'] - 2) +
+                sum(max(0, count - 1) for count in bishop_shades) +
                 max(0, counts['N'] - 2)
             )
             if counts['P'] > 8 or total > 16 or promoted > (8 - counts['P']):
@@ -402,6 +461,8 @@ class Board:
                 )
             new_b.halfmove_clock = halfmove
             new_b.fullmove_number = fullmove
+            if ep_field != "-" and halfmove != 0:
+                return False, "en passant requires a zero halfmove clock"
 
         # Verify king presence and legality
         if is_in_check(new_b, opposite(new_b.turn)):

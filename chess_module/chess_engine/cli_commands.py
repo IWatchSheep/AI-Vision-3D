@@ -16,11 +16,11 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence
 
 from .constants import (
-    EXCHANGE_MAX, COMPARE_MAX, FEN_TEXT_SIZE,
+    EXCHANGE_MAX, COMPARE_MAX, FEN_TEXT_MAX,
     opposite, color_name, parse_square, square_index, in_bounds,
 )
 from .move import Move, parse_move_text
-from .movegen import legal_move, make_move
+from .movegen import destination_is_legal, legal_move, make_move
 from .ui import print_selection_near_prompt
 from .analysis import (
     parse_goal, goal_text,
@@ -107,9 +107,9 @@ def handle_help(_session: GameSession, cmd: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def handle_cancel(session: GameSession, cmd: str) -> bool:
-    """N / NEW / select none -> clear selection."""
+    """N / NEW / select none / cancel -> clear selection."""
     lower = cmd.lower()
-    is_new = lower in ("new", "select none")
+    is_new = lower in ("new", "select none", "cancel")
     is_n = lower == "n" and not session.promotion_pending
     if not (is_new or is_n):
         return False
@@ -128,8 +128,7 @@ def handle_fen(session: GameSession, cmd: str) -> bool:
         return False
 
     fen_str = cmd[4:].strip()
-    # FEN_TEXT_SIZE comes from the C port buffer; allow a little headroom.
-    if len(fen_str) > max(FEN_TEXT_SIZE, 256):
+    if len(fen_str) > FEN_TEXT_MAX:
         err("FEN rejected: text is too long. The position is unchanged.")
         return True
     ok, reason = session.board.load_fen(fen_str)
@@ -150,7 +149,7 @@ def handle_promotion_choice(session: GameSession, cmd: str) -> bool:
         return False
 
     # Game-control commands are handled later by handle_game_control.
-    if cmd.lower() in ("quit", "exit", "restart", "resign", "claim"):
+    if cmd.lower() in ("quit", "exit", "restart", "resign", "claim") or cmd.lower().startswith("claim "):
         return False
 
     if len(cmd) == 1 and cmd.upper() in "QRBN":
@@ -163,6 +162,11 @@ def handle_promotion_choice(session: GameSession, cmd: str) -> bool:
             pending.sr, pending.sc, pending.er, pending.ec,
             promotion=cmd.upper(),
         )
+        # Re-check with the chosen letter (destination was only pre-checked).
+        if not legal_move(session.board, move):
+            err("That promotion is not legal. Type NEW to cancel and start over.")
+            session.clear_selection()
+            return True
         session.set_preview(move)
         return True
 
@@ -234,17 +238,16 @@ def handle_square_entry(session: GameSession, cmd: str) -> bool:
             print(distance_selection(session.board, row, col), end="")
         return True
 
-    chosen = Move(
-        sr=session.selected_row,
-        sc=session.selected_col,
-        er=row,
-        ec=col,
-    )
-    if not legal_move(session.board, chosen):
+    sr = session.selected_row
+    sc = session.selected_col
+    # Pawn-to-last-rank is legal as a destination before the player names
+    # Q/R/B/N; legal_move itself requires the letter once the move is complete.
+    if not destination_is_legal(session.board, sr, sc, row, col):
         err("Not a legal destination. Press N then Enter to select a different piece.")
         return True
 
-    piece = session.board.grid[session.selected_row][session.selected_col]
+    chosen = Move(sr=sr, sc=sc, er=row, ec=col)
+    piece = session.board.grid[sr][sc]
     if piece.type == "P" and row in (0, 7):
         session.begin_promotion(chosen)
         print("PROMOTION: choose Q (Queen), R (Rook), B (Bishop), or N (Knight).")
@@ -272,11 +275,21 @@ def handle_game_control(session: GameSession, cmd: str) -> Optional[str]:
 
     if lower == "resign":
         winner = opposite(session.board.turn)
-        print(f"{color_name(session.board.turn)} resigns. {color_name(winner)} wins.")
+        if session.board.insufficient_mating_material(winner):
+            print(f"{color_name(session.board.turn)} resigns. Draw: {color_name(winner)} cannot checkmate.")
+        else:
+            print(f"{color_name(session.board.turn)} resigns. {color_name(winner)} wins.")
         return "quit"
 
-    if lower == "claim":
-        can_claim, draw_reason = session.board.claimable_draw()
+    if lower == "claim" or lower.startswith("claim "):
+        # FIDE allows claiming that the move about to be played creates
+        # threefold / 50-move; use the current preview when one is ready.
+        intended = (
+            session.preview_move
+            if session.preview_shown and session.preview_move.sr >= 0
+            else None
+        )
+        can_claim, draw_reason = session.board.claimable_draw(intended)
         if can_claim:
             print(f"Game Over! Draw claimed by {draw_reason}.")
             return "quit"
@@ -708,12 +721,12 @@ def process_promotion_command(session: GameSession, cmd: str) -> Optional[str]:
     """
     lower = cmd.lower()
 
-    if lower in ("new", "select none"):
+    if lower in ("new", "select none", "cancel"):
         session.clear_selection()
         print("Selection cleared. Enter a new start square.")
         return None
 
-    if lower in ("quit", "exit", "restart", "resign", "claim"):
+    if lower in ("quit", "exit", "restart", "resign", "claim") or lower.startswith("claim "):
         control = handle_game_control(session, cmd)
         if control == "quit":
             return "quit"
@@ -753,14 +766,17 @@ def process_command(session: GameSession, cmd: str) -> Optional[str]:
         if control == "handled":
             return None
 
-        if (
-            len(cmd) in (4, 5)
-            or cmd.lower().startswith("offer ")
-            or cmd.lower().startswith("claim ")
-        ):
+        if parse_move_text(cmd) is not None:
             err(
                 "Direct moves are disabled. Enter the START square, then the destination, "
                 "review BEFORE/AFTER, and press F + Enter."
+            )
+            return None
+
+        if cmd.lower() in ("offer", "offer draw") or cmd.lower().startswith("offer "):
+            err(
+                "Draw offers are not supported in hotseat play. Players may agree to quit, "
+                "claim a rule-based draw, or resign."
             )
             return None
 

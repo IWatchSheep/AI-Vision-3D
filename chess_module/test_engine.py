@@ -156,6 +156,186 @@ class TestChessEngine(unittest.TestCase):
         order_out = order_report(self.board, limit=2)
         self.assertIn("ORDER BEGIN White EXCHANGE LIMIT 2", order_out)
 
+    def test_cannot_castle_while_in_check(self):
+        ok, reason = self.board.load_fen("4r1k1/8/8/8/8/8/8/R3K2R w KQ - 0 1")
+        self.assertTrue(ok, reason)
+        self.assertTrue(is_in_check(self.board, WHITE))
+        self.assertFalse(legal_move(self.board, parse_move_text("e1g1")))
+        self.assertFalse(legal_move(self.board, parse_move_text("e1c1")))
+
+    def test_absolute_pin_blocks_leaving_the_line(self):
+        ok, reason = self.board.load_fen("4r1k1/8/8/8/8/8/4N3/4K3 w - - 0 1")
+        self.assertTrue(ok, reason)
+        self.assertFalse(legal_move(self.board, parse_move_text("e2f4")))
+        self.assertFalse(legal_move(self.board, parse_move_text("e2c3")))
+
+    def test_promotion_requires_piece_letter(self):
+        ok, reason = self.board.load_fen("8/4P3/8/8/8/8/8/4K1k1 w - - 0 1")
+        self.assertTrue(ok, reason)
+        self.assertFalse(legal_move(self.board, parse_move_text("e7e8")))
+        self.assertTrue(legal_move(self.board, parse_move_text("e7e8q")))
+        self.assertTrue(legal_move(self.board, parse_move_text("e7e8n")))
+        make_move(self.board, parse_move_text("e7e8n"))
+        self.assertEqual(self.board.grid[0][4].type, "N")
+        self.assertEqual(self.board.grid[0][4].color, WHITE)
+
+    def test_en_passant_expires_after_one_move(self):
+        for uci in ("e2e4", "a7a6", "e4e5", "d7d5"):
+            make_move(self.board, parse_move_text(uci))
+        self.assertTrue(legal_move(self.board, parse_move_text("e5d6")))
+        make_move(self.board, parse_move_text("h2h3"))
+        self.assertEqual((self.board.ep_row, self.board.ep_col), (-1, -1))
+        self.assertFalse(legal_move(self.board, parse_move_text("e5d6")))
+
+    def test_stalemate_and_dead_position(self):
+        ok, reason = self.board.load_fen("k7/2Q5/8/8/8/8/8/4K3 b - - 0 1")
+        self.assertTrue(ok, reason)
+        over, stalemate, draw_reason = game_over(self.board)
+        self.assertTrue(over)
+        self.assertTrue(stalemate)
+        self.assertIsNone(draw_reason)
+
+        ok, reason = self.board.load_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+        self.assertTrue(ok, reason)
+        auto, why = self.board.automatic_draw()
+        self.assertTrue(auto)
+        self.assertEqual(why, "dead position")
+
+    def test_in_bounds_rejects_bool_and_float(self):
+        from chess_engine.constants import in_bounds
+        self.assertFalse(in_bounds(True, 0))
+        self.assertFalse(in_bounds(0, False))
+        self.assertFalse(in_bounds(1.0, 0))
+        self.assertTrue(in_bounds(0, 0))
+
+    def test_load_fen_rejects_oversized_text(self):
+        ok, reason = self.board.load_fen("x" * 300)
+        self.assertFalse(ok)
+        self.assertIn("too long", reason or "")
+
+    def test_ep_that_exposes_king_is_illegal(self):
+        # Black pawn c4; EP target d3; capturing would open the a-file rook check.
+        ok, reason = self.board.load_fen("8/8/8/8/k1pP3R/8/8/4K3 b - d3 0 1")
+        self.assertTrue(ok, reason)
+        self.assertFalse(legal_move(self.board, parse_move_text("c4d3")))
+
+    def test_apply_move_from_empty_does_not_wipe_destination(self):
+        from chess_engine.movegen import apply_move_to_board
+        before = self.board.to_fen()
+        # Empty e4 -> occupied e2 must not clear the white pawn.
+        apply_move_to_board(self.board, Move(4, 4, 6, 4))
+        self.assertEqual(self.board.to_fen(), before)
+        self.assertEqual(self.board.grid[6][4].type, "P")
+
+    def test_make_move_ignores_wrong_side_piece(self):
+        before = self.board.to_fen()
+        # Black pawn on white's turn must not move.
+        make_move(self.board, Move(1, 4, 3, 4))
+        self.assertEqual(self.board.to_fen(), before)
+
+    def test_make_move_ignores_own_piece_capture(self):
+        before = self.board.to_fen()
+        # White knight b1 onto white pawn d2 must not wipe the pawn.
+        make_move(self.board, Move(7, 1, 6, 3))
+        self.assertEqual(self.board.to_fen(), before)
+
+    def test_index_to_row_col_rejects_bool(self):
+        from chess_engine.constants import index_to_row_col
+        self.assertIsNone(index_to_row_col(True))
+        self.assertIsNone(index_to_row_col(False))
+        self.assertEqual(index_to_row_col(1), (0, 1))
+
+    def test_promotion_moves_are_generated(self):
+        ok, reason = self.board.load_fen("8/P7/8/8/8/8/8/4K2k w - - 0 1")
+        self.assertTrue(ok, reason)
+        promos = {
+            m.uci for m in sorted_moves(self.board) if m.promotion != "\0"
+        }
+        self.assertEqual(promos, {"a7a8q", "a7a8r", "a7a8b", "a7a8n"})
+        make_move(self.board, parse_move_text("a7a8n"))
+        self.assertEqual(self.board.grid[0][0].type, "N")
+        self.assertEqual(self.board.grid[0][0].color, WHITE)
+
+    def test_make_move_refuses_castling_without_rook(self):
+        ok, reason = self.board.load_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+        self.assertTrue(ok, reason)
+        before = self.board.to_fen()
+        make_move(self.board, parse_move_text("e1g1"))
+        self.assertEqual(self.board.to_fen(), before)
+        self.assertEqual(self.board.grid[7][4].type, "K")
+        self.assertTrue(self.board.grid[7][6].is_empty)
+
+    def test_load_fen_rejects_unicode_digits(self):
+        # Arabic-Indic digit for an empty rank must not be treated as FEN.
+        ok, reason = self.board.load_fen(
+            "rnbqkbnr/pppppppp/\u0668/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        )
+        self.assertFalse(ok)
+        self.assertIsNotNone(reason)
+
+    def test_claimable_draw_with_intended_move(self):
+        # After returning twice toward the start, Ng8 would create threefold.
+        moves = ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"]
+        for uci in moves:
+            make_move(self.board, parse_move_text(uci))
+            self.board.record_position()
+        intended = parse_move_text("f6g8")
+        self.assertFalse(self.board.claimable_draw()[0])
+        can_claim, reason = self.board.claimable_draw(intended)
+        self.assertTrue(can_claim)
+        self.assertEqual(reason, "threefold repetition")
+
+    def test_cannot_castle_through_or_into_check(self):
+        ok, reason = self.board.load_fen("5rk1/8/8/8/8/8/8/4K2R w K - 0 1")
+        self.assertTrue(ok, reason)
+        self.assertFalse(legal_move(self.board, parse_move_text("e1g1")))
+        # Rook on g8 attacks g1; king would castle into check.
+        ok, reason = self.board.load_fen("4k1r1/8/8/8/8/8/8/4K2R w K - 0 1")
+        self.assertTrue(ok, reason)
+        self.assertFalse(legal_move(self.board, parse_move_text("e1g1")))
+        # b-file attack does not block queenside castling (king never crosses b1).
+        ok, reason = self.board.load_fen("1r2k3/8/8/8/8/8/8/R3K3 w Q - 0 1")
+        self.assertTrue(ok, reason)
+        self.assertTrue(legal_move(self.board, parse_move_text("e1c1")))
+
+    def test_zero_move_cause_pawn_promotion(self):
+        from chess_engine.study.calc import zero_move_cause
+        # White pawn on a7 with a8 empty: promotion is possible, not BLOCKED
+        ok, reason = self.board.load_fen("8/P7/8/8/8/8/8/4K2k w - - 0 1")
+        self.assertTrue(ok, reason)
+        cause = zero_move_cause(self.board, 1, 0)
+        self.assertNotEqual(cause, "BLOCKED")
+
+    def test_captured_type_non_ep(self):
+        from chess_engine.study.exchange import captured_type
+        # White pawn on e4, d5 is empty and not ep target. Diagonal move e4d5 should return ""
+        self.board.reset_board()
+        make_move(self.board, parse_move_text("e2e4"))
+        self.assertEqual(captured_type(self.board, Move(4, 4, 3, 3)), "")
+
+    def test_trace_report_history_limit(self):
+        from chess_engine.study.search import trace_report
+        from chess_engine.constants import HISTORY_MAX_LEN
+        tracker = Tracker(self.board)
+        oversized = " ".join(["e2e4"] * (HISTORY_MAX_LEN + 1))
+        ok, out, idx = trace_report(self.board, tracker, oversized)
+        self.assertFalse(ok)
+        self.assertEqual(idx, 1)
+
+    def test_diagonal_king_move_is_not_castle(self):
+        from chess_engine.study.goals import distance_lines
+        from chess_engine.ui import resolve_piece_after_move
+        # Diagonal move with delta_col 2 must not be treated as castling
+        diag_move = Move(7, 4, 5, 6)
+        after_row, after_col, captured = resolve_piece_after_move(self.board, diag_move, 7, 7)
+        self.assertEqual(after_col, 7)  # rook didn't castle
+
+        # In distance_lines, a king moving diagonally 2 squares doesn't get CASTLE tag
+        lines = distance_lines(self.board, 7, 4, "MOVE")
+        for line in lines:
+            if "CASTLE" in line:
+                self.assertIn("e1", line)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,11 +3,11 @@
 from typing import Dict, List, Optional, Tuple
 from ..constants import (
     BOARD_SIZE, TOTAL_SQUARES, Color, WHITE, BLACK,
-    color_name, square_index, square_text, in_bounds,
+    color_name, square_index, square_text, in_bounds, EXCHANGE_MAX,
 )
 from ..move import Move
 from ..board import Board
-from ..movegen import sorted_moves, make_move, is_in_check
+from ..movegen import sorted_moves, make_move, is_in_check, move_is_en_passant
 from ..tracker import Tracker
 from .common import (
     Goal, MaterialResult, move_distance, order_label, piece_value,
@@ -25,12 +25,14 @@ def captured_type(board: Board, m: Move) -> str:
     """Returns captured piece type ('P', 'N', etc.) or empty string."""
     if not in_bounds(m.sr, m.sc) or not in_bounds(m.er, m.ec):
         return ""
-    target = board.grid[m.er][m.ec]
     mover = board.grid[m.sr][m.sc]
+    if mover.is_empty:
+        return ""
+    target = board.grid[m.er][m.ec]
     if not target.is_empty and target.color != mover.color:
         return target.type
     # En passant: diagonal pawn move onto an empty square.
-    if mover.type == "P" and m.sc != m.ec and target.is_empty:
+    if mover.type == "P" and move_is_en_passant(board, m, mover):
         return "P"
     return ""
 
@@ -38,6 +40,8 @@ def captured_type(board: Board, m: Move) -> str:
 def captures_on(board: Board, sq: int) -> List[Move]:
     """All legal captures landing on sq for side to move."""
     if not isinstance(sq, int) or sq < 0 or sq >= TOTAL_SQUARES:
+        return []
+    if board.automatic_draw()[0]:
         return []
     all_moves = sorted_moves(board)
     return [m for m in all_moves if (m.er * BOARD_SIZE + m.ec == sq) and captured_type(board, m)]
@@ -113,6 +117,8 @@ def material_text(r: MaterialResult) -> str:
 
 def exchange_report(board: Board, sq: int, limit: int) -> str:
     """Generates Stage 3E exchange report for square sq."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= EXCHANGE_MAX:
+        raise ValueError(f"exchange limit must be between 1 and {EXCHANGE_MAX}")
     lines: List[str] = [
         f"EXCHANGE BEGIN {color_name(board.turn)} {square_text(sq)} LIMIT {limit}",
         "NOTE values P 1, N 3, B 3, R 5, Q 9 are logged only, not a score; a nonnegative material result is not proof that a move is good"
@@ -177,6 +183,8 @@ def exchange_report(board: Board, sq: int, limit: int) -> str:
 
 def order_report(board: Board, limit: int) -> str:
     """Generates Stage 3E combined move ordering report."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= EXCHANGE_MAX:
+        raise ValueError(f"exchange limit must be between 1 and {EXCHANGE_MAX}")
     lines: List[str] = [
         f"ORDER BEGIN {color_name(board.turn)} EXCHANGE LIMIT {limit}",
         "NOTE an order of listed facts (ideas 7 and 8), rebuilt in every position; not a choice of move"

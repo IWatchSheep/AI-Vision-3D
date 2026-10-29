@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from .constants import parse_square, in_bounds, row_col_text
+from .constants import PROMOTION_PIECES, parse_square, in_bounds, row_col_text
 
 
 def promotion_rank(promotion: str) -> int:
@@ -45,7 +45,7 @@ class Move:
 
 def parse_move_text(text: str) -> Optional[Move]:
     """Parse 'e2e4' or 'e7e8q'. Returns None if the text is not a move."""
-    if not text or not text.isascii() or len(text) not in (4, 5):
+    if not isinstance(text, str) or not text.isascii() or len(text) not in (4, 5):
         return None
 
     start = parse_square(text[0:2])
@@ -56,7 +56,7 @@ def parse_move_text(text: str) -> Optional[Move]:
     promo = "\0"
     if len(text) == 5:
         letter = text[4].upper()
-        if letter not in ("Q", "R", "B", "N"):
+        if letter not in PROMOTION_PIECES:
             return None
         promo = letter
 

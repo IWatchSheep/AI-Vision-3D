@@ -42,6 +42,8 @@ CASTLE_QUEENSIDE_ROOK_DEST_COL = 3
 
 # Size limits (guard against huge input / runaway lists)
 FEN_TEXT_SIZE = 100
+# Absolute cap for load_fen / fen commands (DoS guard). Fits any legal FEN.
+FEN_TEXT_MAX = 256
 FEN_NUMBER_MAX_DIGITS = 9
 HISTORY_MAX_LEN = 512
 CALC_MAX_ID = 33
@@ -55,6 +57,9 @@ EXCHANGE_MAX = 8
 COMPARE_MAX = 6
 MAX_COMMAND_CHARS = 512
 MAX_SLIDE_STEPS = 7  # longest clear path on an 8x8 board
+
+# Only these pieces may appear as a pawn promotion choice.
+PROMOTION_PIECES = frozenset({"Q", "R", "B", "N"})
 
 PIECE_VALUES = {
     "P": 1,
@@ -94,8 +99,16 @@ def color_name(color: Color) -> str:
     return "Empty"
 
 
-def in_bounds(row: int, col: int) -> bool:
-    """True if (row, col) is on the 8x8 board."""
+def in_bounds(row: object, col: object) -> bool:
+    """True if (row, col) are whole-number coords on the 8x8 board.
+
+    Rejects bool (True == 1 in Python) and floats so they cannot be used
+    as square indexes by accident.
+    """
+    if not isinstance(row, int) or isinstance(row, bool):
+        return False
+    if not isinstance(col, int) or isinstance(col, bool):
+        return False
     return 0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE
 
 
@@ -106,9 +119,14 @@ def square_index(row: int, col: int) -> int:
     return row * BOARD_SIZE + col
 
 
-def index_to_row_col(index: int) -> Optional[Tuple[int, int]]:
-    """0..63 -> (row, col). Returns None if index is out of range."""
-    if not isinstance(index, int) or index < 0 or index >= TOTAL_SQUARES:
+def index_to_row_col(index: object) -> Optional[Tuple[int, int]]:
+    """0..63 -> (row, col). Returns None if index is out of range.
+
+    Rejects bool (True == 1 in Python) the same way in_bounds does.
+    """
+    if not isinstance(index, int) or isinstance(index, bool):
+        return None
+    if index < 0 or index >= TOTAL_SQUARES:
         return None
     return index // BOARD_SIZE, index % BOARD_SIZE
 
@@ -129,7 +147,7 @@ def row_col_text(row: int, col: int) -> str:
 
 def parse_square(s: str) -> Optional[Tuple[int, int]]:
     """'e4' -> (row, col). Exact two characters only; rejects longer junk."""
-    if not s or len(s) != 2 or not s.isascii():
+    if not isinstance(s, str) or len(s) != 2 or not s.isascii():
         return None
     file_char = s[0].lower()
     rank_char = s[1]
@@ -154,7 +172,7 @@ def rook_col_for(king_side: bool) -> int:
 
 def parse_nonneg_int(text: str, max_digits: int = FEN_NUMBER_MAX_DIGITS) -> Optional[int]:
     """Parse a non-negative ASCII integer with a digit-length cap (no huge ints)."""
-    if not text or not text.isascii() or not text.isdigit():
+    if not isinstance(text, str) or not text or not text.isascii() or not text.isdigit():
         return None
     if len(text) > max_digits:
         return None

@@ -9,13 +9,13 @@ from typing import List, Optional
 from ..constants import (
     BOARD_SIZE, TOTAL_SQUARES,
     Color, WHITE, BLACK,
-    GOAL_MAX_SQUARES, GOAL_MAX_LIMIT, GOAL_MAX_ROUTES,
+    GOAL_MAX_SQUARES, GOAL_MAX_LIMIT, GOAL_MAX_ROUTES, LOOP_MAX_DEPTH,
     in_bounds, opposite, color_name, square_index, square_text, parse_square,
 )
 from ..move import Move
 from ..board import Board
 from ..movegen import (
-    generate_moves, sorted_moves, make_move, is_in_check, piece_attacks, find_king,
+    generate_moves, sorted_moves, make_move, is_in_check, piece_attacks, find_king, game_over,
 )
 from .common import (
     Goal, GoalCondition, RealResult, RouteVector,
@@ -397,6 +397,8 @@ def second_goal_report(
 
 def goal_marks_selection(board: Board, goal: Goal, r: int, c: int) -> str:
     """Marks destinations of selected piece according to goal progress."""
+    if not in_bounds(r, c):
+        return "GOAL MARKS END\n"
     squares = goal_squares(goal, board, board.turn)
     at = square_text(square_index(r, c))
     lines = [f"GOAL MARKS {board.grid[r][c].type} {at} GOAL {goal_text(goal)} LIMIT {goal.limit} PASS"]
@@ -442,6 +444,8 @@ def goal_marks_selection(board: Board, goal: Goal, r: int, c: int) -> str:
 
 def goal_marks_after(board: Board, goal: Goal, move: Move) -> str:
     """Marks progress after proposed move."""
+    if not (in_bounds(move.sr, move.sc) and in_bounds(move.er, move.ec)):
+        return "GOAL MARKS END\n"
     after = board.clone()
     pass_play(after, move, board.turn)
     squares = goal_squares(goal, after, after.turn)
@@ -489,6 +493,8 @@ def goal_marks_after(board: Board, goal: Goal, move: Move) -> str:
 
 def distance_lines(board: Board, r: int, c: int, label: str) -> List[str]:
     """Generates distance order lines for piece on (r, c)."""
+    if not in_bounds(r, c):
+        return []
     view = board.clone()
     view.turn = board.grid[r][c].color
     all_moves = sorted_moves(view)
@@ -506,7 +512,7 @@ def distance_lines(board: Board, r: int, c: int, label: str) -> List[str]:
             ptype = board.grid[r][c].type
             if ptype == 'N':
                 line += " JUMP"
-            elif ptype == 'K' and d == 2:
+            elif ptype == 'K' and m.sr == m.er and abs(m.ec - m.sc) == 2:
                 is_ks = (m.ec > m.sc)
                 rf = square_text(square_index(r, 7 if is_ks else 0))
                 rt = square_text(square_index(r, 5 if is_ks else 3))
@@ -516,6 +522,8 @@ def distance_lines(board: Board, r: int, c: int, label: str) -> List[str]:
 
 
 def distance_selection(board: Board, r: int, c: int) -> str:
+    if not in_bounds(r, c):
+        return "DISTANCE ORDER END\n"
     at = square_text(square_index(r, c))
     lines = [f"DISTANCE ORDER {board.grid[r][c].type} {at}"]
     lines.extend(distance_lines(board, r, c, "MOVE"))
@@ -524,6 +532,8 @@ def distance_selection(board: Board, r: int, c: int) -> str:
 
 
 def distance_after(board: Board, move: Move) -> str:
+    if not (in_bounds(move.sr, move.sc) and in_bounds(move.er, move.ec)):
+        return "DISTANCE ORDER END\n"
     after = board.clone()
     make_move(after, move)
     lines = [f"DISTANCE ORDER AFTER {move.uci}"]
@@ -540,6 +550,9 @@ def distance_after(board: Board, move: Move) -> str:
 
 def routes_real_report(board: Board, goal: Goal, depth: int) -> str:
     """Generates Stage 3D real goal report."""
+    if (not isinstance(depth, int) or isinstance(depth, bool)
+            or not 1 <= depth <= LOOP_MAX_DEPTH):
+        raise ValueError(f"depth must be between 1 and {LOOP_MAX_DEPTH}")
     side = board.turn
     enemy = opposite(side)
     squares = goal_squares(goal, board, side)
@@ -554,24 +567,32 @@ def routes_real_report(board: Board, goal: Goal, depth: int) -> str:
         lines.append("ROUTES END\n")
         return "\n".join(lines)
 
+    drawn, reason = board.automatic_draw()
+    if drawn:
+        lines.extend([f"DRAW {reason}", "ROUTES END\n"])
+        return "\n".join(lines)
+
     def goal_forced_real(b: Board, sq: int, cond: GoalCondition, n: int) -> bool:
         """True if side can force the goal in n plies against every reply."""
-        if n < 1:
+        if goal_holds(b, side, sq, cond):
+            return True
+        if n < 1 or game_over(b)[0]:
             return False
         moves = generate_moves(b)
         for m in moves:
             next_b = b.clone()
-            make_move(next_b, m)
+            make_move(next_b, m, record_history=True)
             if goal_holds(next_b, side, sq, cond):
                 return True
-            if n < 3:
+            if n < 3 or game_over(next_b)[0] or next_b.claimable_draw()[0]:
                 continue
             replies = generate_moves(next_b)
             if not replies:
                 continue
             # Each reply needs its own clone — do not reuse one board.
             if all(
-                goal_forced_real(_after_reply(next_b, rep), sq, cond, n - 2)
+                not next_b.claimable_draw(rep)[0]
+                and goal_forced_real(_after_reply(next_b, rep), sq, cond, n - 2)
                 for rep in replies
             ):
                 return True
@@ -579,22 +600,24 @@ def routes_real_report(board: Board, goal: Goal, depth: int) -> str:
 
     def _after_reply(position: Board, rep: Move) -> Board:
         after = position.clone()
-        make_move(after, rep)
+        make_move(after, rep, record_history=True)
         return after
 
     def goal_possible_real(b: Board, sq: int, cond: GoalCondition, n: int) -> bool:
-        if n < 1: return False
+        if goal_holds(b, side, sq, cond):
+            return True
+        if n < 1 or game_over(b)[0]: return False
         moves = generate_moves(b)
         for m in moves:
             next_b = b.clone()
-            make_move(next_b, m)
+            make_move(next_b, m, record_history=True)
             if goal_holds(next_b, side, sq, cond):
                 return True
-            if n >= 3:
+            if n >= 3 and not game_over(next_b)[0]:
                 replies = generate_moves(next_b)
                 for rep in replies:
                     after_rep = next_b.clone()
-                    make_move(after_rep, rep)
+                    make_move(after_rep, rep, record_history=True)
                     if goal_possible_real(after_rep, sq, cond, n - 2):
                         return True
         return False
@@ -617,21 +640,22 @@ def routes_real_report(board: Board, goal: Goal, depth: int) -> str:
             best = RealResult.REAL_ELSE
             for m in first_moves:
                 next_b = board.clone()
-                make_move(next_b, m)
+                make_move(next_b, m, record_history=True)
                 if goal_holds(next_b, side, sq, cond):
                     lines.append(f"FIRST {m.uci} CONDITION IF FORCED MOVES 1")
                     best = RealResult.REAL_FORCED
                     continue
 
-                replies = generate_moves(next_b)
-                forced = (depth >= 3 and len(replies) > 0)
+                replies = [] if game_over(next_b)[0] else generate_moves(next_b)
+                forced = (depth >= 3 and len(replies) > 0 and not next_b.claimable_draw()[0])
                 k = 0
                 for rep in replies:
                     after_rep = next_b.clone()
-                    make_move(after_rep, rep)
+                    make_move(after_rep, rep, record_history=True)
                     can = goal_possible_real(after_rep, sq, cond, depth - 2)
                     if can: k += 1
-                    if forced and (not can or not goal_forced_real(after_rep, sq, cond, depth - 2)):
+                    if forced and (next_b.claimable_draw(rep)[0] or not can
+                                   or not goal_forced_real(after_rep, sq, cond, depth - 2)):
                         forced = False
 
                 if forced:
@@ -673,6 +697,8 @@ def routes_real_report(board: Board, goal: Goal, depth: int) -> str:
 
 def support_report(board: Board, move: Move) -> str:
     """Generates Stage 3D SUPPORT report."""
+    if not (in_bounds(move.sr, move.sc) and in_bounds(move.er, move.ec)):
+        return "SUPPORT END\n"
     side = board.turn
     enemy = opposite(side)
     after = board.clone()
